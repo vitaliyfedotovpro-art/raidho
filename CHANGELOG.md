@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+- **Split reasoning / execution providers.** `Session` accepts an optional
+  `reason_provider`; `text`/reasoning runs on it while `code`/execution runs on the
+  main provider (e.g. plan on Claude, execute on DeepSeek). CLI wiring via
+  `CODER_REASON_PROVIDER` / `CODER_REASON_MODEL`; keys resolved per provider.
+  Backward-compatible: omit it and both modes use the single provider.
+
+### Changed
+- README rewritten benefit-first: leads with the reasoning/execution split and
+  durable memory rather than the underlying VSA machinery.
+
 ## [0.0.1] — alpha
 
 ### Added

@@ -42,6 +42,31 @@ get_provider({
 })
 ```
 
+## Split reasoning / execution across providers
+
+`Session` accepts a separate `reason_provider`. The `text`/reasoning mode uses it;
+the `code`/execution tool loop uses the main `provider`. This lets you plan with a
+smart, expensive model and execute with a cheap, fast one:
+
+```python
+from agent.loop import Session
+from agent.providers import get_provider
+
+reason  = get_provider({"provider": "anthropic", "api_key": "sk-ant-..."})  # smart
+execute = get_provider({"provider": "deepseek",  "api_key": "sk-..."})      # cheap
+session = Session(execute, reason_provider=reason)
+```
+
+Or via environment (the CLI wires this for you):
+
+```bash
+export CODER_PROVIDER=deepseek          # execution
+export CODER_REASON_PROVIDER=anthropic  # reasoning
+# keys are resolved per provider: DEEPSEEK_API_KEY, ANTHROPIC_API_KEY, ...
+```
+
+Omit `reason_provider` / `CODER_REASON_PROVIDER` and both modes use the one provider.
+
 ## Authentication — bring your own key
 
 Raidho uses **your** API key. Provide it via env (`CODER_API_KEY`, or

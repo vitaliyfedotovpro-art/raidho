@@ -1,13 +1,18 @@
 """CLI кодера: два режима (text / code), provider-pluggable бэкенд.
 
 Конфиг из переменных окружения:
-  CODER_PROVIDER   anthropic | deepseek | openai | openai-compat  (по умолч. anthropic)
-  CODER_MODEL      переопределить модель (опционально)
-  CODER_BASE_URL   для openai-compat
+  CODER_PROVIDER         anthropic | deepseek | openai | openai-compat (default anthropic)
+  CODER_MODEL            переопределить модель исполнения
+  CODER_BASE_URL         endpoint для openai-compat
+  CODER_REASON_PROVIDER  (опц.) отдельный провайдер для reasoning-режима (text)
+  CODER_REASON_MODEL     (опц.) модель reasoning-провайдера
   ANTHROPIC_API_KEY / DEEPSEEK_API_KEY / OPENAI_API_KEY / CODER_API_KEY
 
-Auth — ключ конечного пользователя (BYO). OAuth-логин не реализован: при желании
-подставьте свой токен через callable-хук в get_provider (см. providers.py).
+Сплит «умная модель думает / дешёвая исполняет»: задай разные провайдеры для
+исполнения (CODER_PROVIDER) и рассуждения (CODER_REASON_PROVIDER). Ключ берётся
+провайдер-специфичный (ANTHROPIC_API_KEY и т.п.), иначе CODER_API_KEY.
+
+Auth — ключ конечного пользователя (BYO). OAuth-логин не реализован; см. providers.py.
 """
 from __future__ import annotations
 
@@ -17,29 +22,51 @@ import sys
 
 from .loop import Session
 from .memory import AgentMemory
-from .providers import get_provider
+from .providers import Provider, get_provider
+
+_KEY_ENV = {"anthropic": "ANTHROPIC_API_KEY", "deepseek": "DEEPSEEK_API_KEY",
+            "openai": "OPENAI_API_KEY"}
 
 
-def _config_from_env() -> dict:
-    provider = (os.environ.get("CODER_PROVIDER") or "anthropic").lower()
-    key = (os.environ.get("CODER_API_KEY")
-           or os.environ.get("ANTHROPIC_API_KEY")
-           or os.environ.get("DEEPSEEK_API_KEY")
-           or os.environ.get("OPENAI_API_KEY"))
-    cfg = {"provider": provider, "api_key": key}
-    if os.environ.get("CODER_MODEL"):
-        cfg["model"] = os.environ["CODER_MODEL"]
-    if os.environ.get("CODER_BASE_URL"):
+def _key_for(provider: str) -> str | None:
+    """Провайдер-специфичный ключ, иначе общий CODER_API_KEY."""
+    return (os.environ.get(_KEY_ENV.get(provider, ""), "")
+            or os.environ.get("CODER_API_KEY")
+            or None)
+
+
+def _config(provider: str, model_env: str) -> dict:
+    cfg = {"provider": provider, "api_key": _key_for(provider)}
+    if os.environ.get(model_env):
+        cfg["model"] = os.environ[model_env]
+    if provider == "openai-compat" and os.environ.get("CODER_BASE_URL"):
         cfg["base_url"] = os.environ["CODER_BASE_URL"]
     return cfg
 
 
+def _main_config() -> dict:
+    return _config((os.environ.get("CODER_PROVIDER") or "anthropic").lower(), "CODER_MODEL")
+
+
+def _reason_provider() -> Provider | None:
+    """Опциональный отдельный провайдер для reasoning (режим text)."""
+    name = os.environ.get("CODER_REASON_PROVIDER")
+    if not name:
+        return None
+    return get_provider(_config(name.lower(), "CODER_REASON_MODEL"))
+
+
+def _make_session(workdir: str) -> Session:
+    return Session(get_provider(_main_config()), workdir=workdir,
+                   memory=AgentMemory(), reason_provider=_reason_provider())
+
+
 async def repl(workdir: str = ".") -> None:
-    cfg = _config_from_env()
-    provider = get_provider(cfg)
-    session = Session(provider, workdir=workdir, memory=AgentMemory())
+    session = _make_session(workdir)
     mode = "code"  # code | text
-    print(f"Кодер готов (provider={provider.name}, mode={mode}, workdir={workdir}).")
+    reason, exe = session.reason_provider.name, session.provider.name
+    backend = f"reason={reason} / exec={exe}" if reason != exe else f"provider={exe}"
+    print(f"Кодер готов ({backend}, mode={mode}, workdir={workdir}).")
     print("/text — режим обсуждения, /code — агентный кодинг, /quit — выход.\n")
     while True:
         try:
@@ -63,9 +90,7 @@ async def repl(workdir: str = ".") -> None:
 
 async def run_once(task: str, workdir: str = ".") -> str:
     """Одна задача в агентном режиме → результат (для делегирования/скриптов)."""
-    session = Session(get_provider(_config_from_env()), workdir=workdir,
-                      memory=AgentMemory())
-    return await session.code(task)
+    return await _make_session(workdir).code(task)
 
 
 def main() -> None:

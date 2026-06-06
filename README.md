@@ -1,11 +1,11 @@
 # Raidho ᚱ
 
-**A coding agent with composition-episodic VSA memory and a provider-pluggable LLM backend.**
+**A coding agent that plans with one model, executes with another, and remembers what it learns.**
 
-Raidho is a small, dependency-light coding agent. It runs a tool-using agent loop
-(`bash` / `read` / `write` / `list`) over your codebase, remembers durable facts in a
-Vector Symbolic Architecture (VSA) memory, and talks to whichever LLM you give it a
-key for — Claude (default), DeepSeek, or any OpenAI-compatible endpoint.
+Most coding agents are one model in a tool loop. Raidho splits the work: use a
+**smart, expensive model to reason and plan**, a **cheap, fast model to execute**,
+and a **durable memory** that carries facts across the whole session — all
+provider-agnostic, with your own API key.
 
 > The name is the rune *Raidho* (ᚱ) — "journey / movement".
 
@@ -13,31 +13,27 @@ key for — Claude (default), DeepSeek, or any OpenAI-compatible endpoint.
 ![python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![status](https://img.shields.io/badge/status-alpha-orange)
 
-> **Status: alpha.** Tested end-to-end live against DeepSeek. The Claude path is
-> built on the official Anthropic SDK. Public APIs may change before 1.0.
+> **Status: alpha.** Tested end-to-end live against DeepSeek; the Claude path uses
+> the official Anthropic SDK. No published benchmarks yet (see [Roadmap](#roadmap)).
+> APIs may change before 1.0.
 
-## Why
+## What makes it different
 
-Most agent "memory" is RAG over a vector database. Raidho's memory is **structural**:
-
-- **facts** are stored as role-binding hypervectors (subject / relation / object);
-- **episodes** as permutations (order-preserving sequences);
-- entity identity is decided by string normalization + an alias table (not cosine);
-- similarity is computed with **bit-packed popcount** — 32× less RAM than float,
-  with bit-identical ranking.
-
-Before each turn the agent recalls relevant facts into its system prompt, and it can
-persist new facts itself through a `remember` tool.
-
-## Features
-
-- 🔌 **Provider-pluggable** — Claude (default), DeepSeek, OpenAI, or any
-  OpenAI-compatible endpoint. Bring your own API key.
-- 🧠 **VSA memory** — facts + episodes, bit-packed similarity (×32 RAM), recall into
-  the prompt, a `remember` tool. Pluggable embedder.
-- 🛠 **Tool-using agent loop** — `bash`, `read_file`, `write_file`, `list_dir`.
-- 💬 **Two modes** — `text` (reasoning chat, no tools) and `code` (agentic loop).
-- 🪶 **Light core** — the memory engine depends only on `numpy`.
+- **Reasoning ≠ execution.** `text` mode (reasoning, no tools) and `code` mode
+  (agentic tool loop) can run on **different providers**. Plan on Claude, grind on
+  DeepSeek — you choose where the expensive thinking happens and where the cheap
+  doing happens.
+- **Durable, structural memory.** The agent remembers `(subject, relation, object)`
+  facts and recalls the relevant ones into its prompt each turn — and can save new
+  ones itself via a `remember` tool. It's a Vector Symbolic Architecture (VSA), not
+  RAG: facts are composed algebraically, similarity is bit-packed (32× less RAM than
+  float, identical ranking). You don't need to know any of that to use it — see
+  [docs/MEMORY.md](docs/MEMORY.md) if you want to.
+- **Tiny and hackable.** The memory core depends only on `numpy`; the whole agent is
+  a handful of files. Swap providers, tools, or the embedder without fighting a
+  framework.
+- **Bring your own key.** Claude (default), DeepSeek, OpenAI, or any
+  OpenAI-compatible endpoint.
 
 ## Install
 
@@ -51,20 +47,26 @@ Python ≥ 3.11.
 
 ## Quickstart
 
-### Claude (default)
-
-```bash
-export ANTHROPIC_API_KEY=sk-ant-...
-coder "create a FastAPI hello-world app and run it"
-```
-
-### DeepSeek (or any OpenAI-compatible endpoint)
+### Single provider
 
 ```bash
 export CODER_PROVIDER=deepseek
 export DEEPSEEK_API_KEY=sk-...
-coder            # interactive REPL
+coder "create a FastAPI hello-world app and run it"
 ```
+
+### Plan with Claude, execute with DeepSeek (the point)
+
+```bash
+export CODER_PROVIDER=deepseek          # execution (code mode, tool loop)
+export DEEPSEEK_API_KEY=sk-...
+export CODER_REASON_PROVIDER=anthropic  # reasoning (text mode)
+export ANTHROPIC_API_KEY=sk-ant-...
+coder                                    # REPL: /text plans on Claude, /code executes on DeepSeek
+```
+
+The expensive model is used only where it earns its keep; the token-heavy tool loop
+runs on the cheap one.
 
 ## Usage
 
@@ -85,26 +87,28 @@ from agent.providers import get_provider
 from agent.loop import Session
 from agent.memory import AgentMemory
 
-provider = get_provider({
-    "provider": "deepseek",
-    "api_key": "sk-...",
-    "model": "deepseek-chat",
-})
-session = Session(provider, workdir=".", memory=AgentMemory())
+reason = get_provider({"provider": "anthropic", "api_key": "sk-ant-..."})        # smart
+execute = get_provider({"provider": "deepseek",  "api_key": "sk-...",            # cheap
+                        "model": "deepseek-chat"})
 
-asyncio.run(session.code("add a /health endpoint and a test for it"))
-asyncio.run(session.chat("what does this module do?"))
+session = Session(execute, workdir=".", memory=AgentMemory(), reason_provider=reason)
+
+asyncio.run(session.chat("plan how to add auth to this app"))   # → reason provider
+asyncio.run(session.code("implement the plan and add a test"))  # → execution provider
 ```
+
+Omit `reason_provider` and both modes use the single provider.
 
 ## Configuration
 
 | Variable | Meaning | Default |
 |---|---|---|
-| `CODER_PROVIDER` | `anthropic` \| `deepseek` \| `openai` \| `openai-compat` | `anthropic` |
-| `CODER_MODEL` | override the model id | provider default |
+| `CODER_PROVIDER` | execution provider: `anthropic` \| `deepseek` \| `openai` \| `openai-compat` | `anthropic` |
+| `CODER_MODEL` | override execution model | provider default |
+| `CODER_REASON_PROVIDER` | optional separate provider for `text`/reasoning | = `CODER_PROVIDER` |
+| `CODER_REASON_MODEL` | reasoning model | provider default |
 | `CODER_BASE_URL` | endpoint URL for `openai-compat` | — |
-| `CODER_API_KEY` | API key (used if no provider-specific key is set) | — |
-| `ANTHROPIC_API_KEY` / `DEEPSEEK_API_KEY` / `OPENAI_API_KEY` | provider keys | — |
+| `ANTHROPIC_API_KEY` / `DEEPSEEK_API_KEY` / `OPENAI_API_KEY` / `CODER_API_KEY` | API keys (provider-specific first, then `CODER_API_KEY`) | — |
 
 See [docs/PROVIDERS.md](docs/PROVIDERS.md) for adding a provider and the auth hook.
 
@@ -113,11 +117,17 @@ See [docs/PROVIDERS.md](docs/PROVIDERS.md) for adding a provider and the auth ho
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — components and data flow.
 - [docs/MEMORY.md](docs/MEMORY.md) — the VSA memory model and bit-packing.
 
+## Roadmap
+
+- Reproducible benchmark (success rate vs. single-model baseline) and a workflow demo.
+- Optional persistent memory (save/load across runs).
+- Pluggable real embedder out of the box (the default is a light hash embedder).
+
 ## Security
 
-The `bash` tool runs **unsandboxed** in the working directory. Run Raidho only on
-code and tasks you trust — ideally inside a container or a throwaway directory.
-See [SECURITY.md](SECURITY.md).
+The `bash` tool runs **unsandboxed** in the working directory; in `code` mode the
+model decides which commands to run. Use Raidho only on code and tasks you trust —
+ideally inside a container or a throwaway directory. See [SECURITY.md](SECURITY.md).
 
 ## License
 

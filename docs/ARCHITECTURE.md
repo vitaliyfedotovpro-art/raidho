@@ -58,10 +58,13 @@ tool rounds stay *inside* the provider and never leak into the neutral history.
 
 Two modes:
 
-- **`chat(text)`** — reasoning, no tools.
-- **`code(task)`** — agentic tool loop.
+- **`chat(text)`** — reasoning, no tools. Uses `reason_provider`.
+- **`code(task)`** — agentic tool loop. Uses `provider`.
 
-Both inject relevant memory into the system prompt before the call (recall).
+`Session` takes an optional `reason_provider`; when set, reasoning and execution run
+on different backends (e.g. plan on Claude, execute on DeepSeek). When omitted, both
+use the single `provider`. Both inject relevant memory into the system prompt before
+the call (recall).
 
 ### Tools (`tools.py`)
 

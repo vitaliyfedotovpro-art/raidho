@@ -31,8 +31,10 @@ def _print_tool(name: str, args: dict) -> None:
 
 class Session:
     def __init__(self, provider: Provider, workdir: str | Path = ".",
-                 system: str = DEFAULT_SYSTEM, memory: AgentMemory | None = None):
-        self.provider = provider
+                 system: str = DEFAULT_SYSTEM, memory: AgentMemory | None = None,
+                 reason_provider: Provider | None = None):
+        self.provider = provider                            # исполнение (code, tool-loop)
+        self.reason_provider = reason_provider or provider  # рассуждение (chat); по умолч. тот же
         self.tools = Tools(workdir)
         self.system = system
         self.memory = memory
@@ -55,8 +57,9 @@ class Session:
         return await self.tools.run(name, args)
 
     async def chat(self, text: str) -> str:
-        """Текстовый режим: обсуждение/reasoning, без инструментов (recall активен)."""
-        reply = await self.provider.chat(self._system_for(text), self.history, text)
+        """Текстовый режим: обсуждение/reasoning, без инструментов (recall активен).
+        Использует reason_provider — можно «думать» умной моделью, «исполнять» дешёвой."""
+        reply = await self.reason_provider.chat(self._system_for(text), self.history, text)
         self.history += [{"role": "user", "content": text},
                          {"role": "assistant", "content": reply}]
         return reply
