@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+# ВНИМАНИЕ: имя — рабочее (placeholder). Финализировать перед публикацией:
+# «A-CODE» коллидирует с Acode, «V-CODE» с VS Code — выбрать различимое.
+name = "coder-public"
+version = "0.0.1"
+description = "Кодер-агент с компонуемо-эпизодической VSA-памятью. Provider-pluggable LLM-бэкенд."
+requires-python = ">=3.11"
+license = { text = "AGPL-3.0-or-later" }
+dependencies = [
+    "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+# Локальный эмбеддер по умолчанию (иначе embed_fn инъектируется вызывающим).
+embed = ["sentence-transformers>=2.6"]
+dev = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+include = ["vsa*"]
