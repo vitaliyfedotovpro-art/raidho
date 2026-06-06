@@ -16,6 +16,7 @@ import os
 import sys
 
 from .loop import Session
+from .memory import AgentMemory
 from .providers import get_provider
 
 
@@ -36,7 +37,7 @@ def _config_from_env() -> dict:
 async def repl(workdir: str = ".") -> None:
     cfg = _config_from_env()
     provider = get_provider(cfg)
-    session = Session(provider, workdir=workdir)
+    session = Session(provider, workdir=workdir, memory=AgentMemory())
     mode = "code"  # code | text
     print(f"Кодер готов (provider={provider.name}, mode={mode}, workdir={workdir}).")
     print("/text — режим обсуждения, /code — агентный кодинг, /quit — выход.\n")
@@ -62,7 +63,8 @@ async def repl(workdir: str = ".") -> None:
 
 async def run_once(task: str, workdir: str = ".") -> str:
     """Одна задача в агентном режиме → результат (для делегирования/скриптов)."""
-    session = Session(get_provider(_config_from_env()), workdir=workdir)
+    session = Session(get_provider(_config_from_env()), workdir=workdir,
+                      memory=AgentMemory())
     return await session.code(task)
 
 
