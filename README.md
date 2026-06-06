@@ -20,10 +20,11 @@ Architecture (VSA) и **provider-pluggable** LLM-бэкендом. Без при
 | Слой | Состояние |
 |---|---|
 | VSA-память (`vsa/`) | ✅ готово, самодостаточно (только `numpy`), 5 регресс-тестов |
-| Агентная петля (bash/read/write/list) | 🔜 порт из приватного прототипа, очистка от персон |
-| Provider-pluggable бэкенд (Claude default + др.) | 🔜 |
-| Auth: OAuth-логин ИЛИ свой API-ключ | 🔜 |
-| Режимы: текстовый reasoning + агентный кодинг | 🔜 |
+| Агентная петля (bash/read/write/list) | ✅ `agent/tools.py` + `agent/loop.py` |
+| Provider-pluggable бэкенд (Claude default + DeepSeek/openai-compat) | ✅ `agent/providers.py` |
+| Auth: BYO API-ключ (+ pluggable хук под OAuth) | ✅ ключ юзера; OAuth-хук — точка расширения |
+| Режимы: текстовый reasoning + агентный кодинг | ✅ `agent/cli.py` (`/text` / `/code`) |
+| Интеграция VSA-памяти в агента | 🔜 |
 
 ## Установка / тест
 
