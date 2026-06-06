@@ -3,9 +3,9 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-# ВНИМАНИЕ: имя — рабочее (placeholder). Финализировать перед публикацией:
-# «A-CODE» коллидирует с Acode, «V-CODE» с VS Code — выбрать различимое.
-name = "coder-public"
+# Raidho (руна ᚱ — «путь/движение»). Чисто в dev-нише; GitHub handle `raidho`
+# занят — org/handle при пуше взять вариантом, имя пакета свободно.
+name = "raidho"
 version = "0.0.1"
 description = "Кодер-агент с компонуемо-эпизодической VSA-памятью. Provider-pluggable LLM-бэкенд."
 requires-python = ">=3.11"
