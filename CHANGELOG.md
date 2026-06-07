@@ -7,6 +7,10 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **Open WebUI integration** (`integrations/openwebui_raidho.py`): a Pipe Function
+  exposing Raidho as selectable models — `chat`, `council`, and (opt-in) `code`.
+  Providers/keys configured via Valves. The `code` model runs an unsandboxed shell
+  on the host and is **disabled by default** (`enable_code`). See docs/OPENWEBUI.md.
 - **Council mode** (`agent/council.py`): two providers debate a question (propose →
   critique/concede over N rounds, early stop on `AGREE`), then a neutral "secretary"
   pass distills points of agreement, residual disagreements, and a recommendation.

@@ -133,6 +133,8 @@ See [docs/PROVIDERS.md](docs/PROVIDERS.md) for adding a provider and the auth ho
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — components and data flow.
 - [docs/MEMORY.md](docs/MEMORY.md) — the VSA memory model and bit-packing.
+- [docs/OPENWEBUI.md](docs/OPENWEBUI.md) — drive Raidho from Open WebUI (chat /
+  council / code as selectable models).
 
 ## Roadmap
 
