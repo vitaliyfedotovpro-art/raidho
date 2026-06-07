@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .council import Council
 from .memory import REMEMBER_SPEC, AgentMemory
 from .providers import Provider
 from .tools import TOOLS_SPEC, Tools
@@ -27,6 +28,10 @@ DEFAULT_SYSTEM = (
 def _print_tool(name: str, args: dict) -> None:
     preview = str(args.get("command") or args.get("path") or args.get("subject") or "")[:70]
     print(f"  🔧 {name}({preview})")
+
+
+def _print_turn(who: str, text: str) -> None:
+    print(f"\n{who}> {text}\n")
 
 
 class Session:
@@ -72,3 +77,10 @@ class Session:
         self.history += [{"role": "user", "content": task},
                          {"role": "assistant", "content": reply}]
         return reply
+
+    async def council(self, question: str, rounds: int = 2) -> dict:
+        """Two-provider debate → consensus. Seat A = reason_provider, seat B = the
+        execution provider — set them differently (e.g. via reason_provider) for a
+        Claude-vs-DeepSeek debate. Returns {'transcript', 'verdict'}."""
+        c = Council(self.reason_provider, self.provider)
+        return await c.consensus(question, rounds=rounds, on_turn=_print_turn)

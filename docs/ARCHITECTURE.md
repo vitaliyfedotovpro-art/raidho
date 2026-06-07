@@ -11,6 +11,7 @@ on `numpy`.
 │  providers  Provider abstraction → Anthropic | OpenAI-compatible │
 │  tools.py   bash / read_file / write_file / list_dir             │
 │  memory.py  AgentMemory: recall into prompt + `remember` tool     │
+│  council.py two providers debate → consensus (Provider.chat only) │
 └───────────────────────────────┬─────────────────────────────────┘
                                  │  uses
 ┌───────────────────────────────▼──── vsa/ ───────────────────────┐
@@ -82,6 +83,15 @@ the call (recall).
 
 The default embedder is a light deterministic hash; inject a real embedder via
 `embed_fn` for better recall (e.g. `sentence-transformers` from the `embed` extra).
+
+### Council (`council.py`)
+
+`Council` runs a two-provider debate plus a neutral synthesis pass: one seat
+proposes a position, the other critiques on the merits or concedes (early stop on
+`AGREE`) over a few rounds, then an impartial "secretary" pass distills points of
+agreement, residual disagreements, and a recommendation. It uses only
+`Provider.chat` — independent of tools, memory, and the working directory.
+`Session.council(question)` seats `reason_provider` vs `provider`.
 
 ## Data flow (one `code` turn)
 

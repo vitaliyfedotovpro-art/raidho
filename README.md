@@ -23,6 +23,9 @@ provider-agnostic, with your own API key.
   (agentic tool loop) can run on **different providers**. Plan on Claude, grind on
   DeepSeek — you choose where the expensive thinking happens and where the cheap
   doing happens.
+- **Council mode.** Have two providers *debate* a question and a neutral pass distill
+  the consensus (points of agreement, residual disagreements, recommendation) — e.g.
+  Claude vs DeepSeek. Depersonalized and provider-pluggable; no built-in personas.
 - **Durable, structural memory.** The agent remembers `(subject, relation, object)`
   facts and recalls the relevant ones into its prompt each turn — and can save new
   ones itself via a `remember` tool. It's a Vector Symbolic Architecture (VSA), not
@@ -77,7 +80,8 @@ coder                 # interactive REPL (default mode: code)
 coder "<task>"        # headless: run one task, print result, exit
 ```
 
-In the REPL: `/code` agentic coding, `/text` reasoning chat, `/quit` to exit.
+In the REPL: `/code` agentic coding, `/text` reasoning chat, `/council <question>`
+two-provider debate → consensus, `/quit` to exit.
 
 ### Library
 
@@ -98,6 +102,19 @@ asyncio.run(session.code("implement the plan and add a test"))  # → execution 
 ```
 
 Omit `reason_provider` and both modes use the single provider.
+
+### Council: debate → consensus
+
+```python
+from agent.council import Council
+
+council = Council(reason, execute, name_a="claude", name_b="deepseek")
+result = await council.consensus("pin exact deps or use ranges?", rounds=2)
+print(result["verdict"])      # points of agreement / residual disagreements / recommendation
+# result["transcript"] holds the full exchange
+```
+
+Or `Session(...).council("...")`, which seats `reason_provider` vs `provider`.
 
 ## Configuration
 

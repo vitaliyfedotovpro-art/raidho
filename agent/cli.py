@@ -67,7 +67,8 @@ async def repl(workdir: str = ".") -> None:
     reason, exe = session.reason_provider.name, session.provider.name
     backend = f"reason={reason} / exec={exe}" if reason != exe else f"provider={exe}"
     print(f"Кодер готов ({backend}, mode={mode}, workdir={workdir}).")
-    print("/text — режим обсуждения, /code — агентный кодинг, /quit — выход.\n")
+    print("/text — обсуждение, /code — агентный кодинг, /council <q> — дебат "
+          "двух провайдеров → консенсус, /quit — выход.\n")
     while True:
         try:
             line = input(f"[{mode}] › ").strip()
@@ -83,6 +84,10 @@ async def repl(workdir: str = ".") -> None:
             continue
         if line == "/code":
             mode = "code"
+            continue
+        if line.startswith("/council "):
+            res = await session.council(line[len("/council "):].strip())
+            print(f"\n══ consensus ══\n{res['verdict']}\n")
             continue
         reply = await (session.code(line) if mode == "code" else session.chat(line))
         print(f"\n{reply}\n")

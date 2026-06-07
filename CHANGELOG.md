@@ -7,6 +7,12 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **Council mode** (`agent/council.py`): two providers debate a question (propose →
+  critique/concede over N rounds, early stop on `AGREE`), then a neutral "secretary"
+  pass distills points of agreement, residual disagreements, and a recommendation.
+  Depersonalized and provider-pluggable (e.g. Claude vs DeepSeek). Exposed as
+  `Council.consensus(...)`, `Session.council(...)`, and the REPL `/council <q>`.
+  Verified live with two DeepSeek models.
 - **Split reasoning / execution providers.** `Session` accepts an optional
   `reason_provider`; `text`/reasoning runs on it while `code`/execution runs on the
   main provider (e.g. plan on Claude, execute on DeepSeek). CLI wiring via
