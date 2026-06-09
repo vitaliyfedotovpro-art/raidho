@@ -71,6 +71,16 @@ class AgentMemory:
         lines = [f"- {s} —{r}→ {o}" for (s, r, o) in (h["triple"] for h in hits)]
         return "## Relevant memory\n" + "\n".join(lines)
 
+    def match_procedure(self, context: str, threshold: float = 0.45,
+                       top_k: int = 3, use_fitness: bool = True,
+                       mode_boosts: dict[str, float] | None = None) -> list[dict]:
+        """Which procedures fit the context. use_fitness=True by default —
+        in the agent facade, homeostasis is always on (proven-successful
+        procedures rise, failed ones sink)."""
+        return self.mem.match_trigger(context, threshold=threshold,
+                                      top_k=top_k, use_fitness=use_fitness,
+                                      mode_boosts=mode_boosts)
+
     @property
     def n_facts(self) -> int:
         return self.mem.n_facts

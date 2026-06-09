@@ -18,6 +18,7 @@ defaults to sentence-transformers (lazy).
 from __future__ import annotations
 
 import json
+import logging
 import re
 import time
 import unicodedata
@@ -30,6 +31,8 @@ from . import core
 
 # Special letters that NFKD does not decompose (separate letters, not base+mark).
 _SCAND = {"ð": "d", "þ": "th", "æ": "ae", "œ": "oe", "ø": "o", "đ": "d", "ł": "l"}
+
+_log = logging.getLogger("raidho.vsa.memory")
 
 
 def _normalize_surface(s: str) -> str:
@@ -435,17 +438,34 @@ class VSAMemory:
             "body": body,
             "meta": meta or {},
         }
+        for w in self.lint_procedure(body):  # proofreading: warning, not rejection
+            _log.warning("procedure %s: %s", proc_id, w)
         return proc_id
 
     def match_trigger(self, context: str, threshold: float = 0.45,
-                      top_k: int = 3) -> list[dict]:
+                      top_k: int = 3, use_fitness: bool = False,
+                      mode_boosts: dict[str, float] | None = None) -> list[dict]:
         """Which procedures fit the context. Predicates — regex (score 1.0);
         semantic — MAX cosine of the context embedding to the trigger anchors
         (score), cut off by threshold. Returns [{'proc_id','score','type'}] by
-        descending score."""
+        descending score.
+
+        Quarantined procedures (meta['quarantined']) are NOT matched.
+
+        use_fitness — homeostasis (negative feedback): the final score is
+        multiplied by (0.5 + procedure_fitness) ∈ [0.5, 1.5]. A neutral fitness
+        (no outcomes → 0.5) gives a factor of 1.0 — ordering is unchanged until
+        VERIFIED outcomes accumulate (record_outcome). Thus proven-successful
+        procedures rise, failed ones sink — without editing triggers.
+
+        mode_boosts — allostery/epigenetics: {mode: boost}. If meta['modes'] of
+        the procedure intersects with the active modes, score *= (1 + boost). A
+        weak long-term context modifier (e.g. {'ai-dev': 0.3})."""
         hits: list[dict] = []
         sem = []
         for pid, p in self._procedures.items():
+            if (p.get("meta") or {}).get("quarantined"):
+                continue
             t = p["trigger"]
             if t.get("type") == "predicate":
                 if re.search(t["pattern"], context):
@@ -465,6 +485,17 @@ class VSAMemory:
                 score = max(float(self._embs[i] @ qe) for i in idxs)  # max over anchors
                 if score >= threshold:
                     hits.append({"proc_id": pid, "score": score, "type": "semantic"})
+        if use_fitness or mode_boosts:
+            for h in hits:
+                h["base_score"] = h["score"]
+                meta = self._procedures[h["proc_id"]].get("meta") or {}
+                if use_fitness:
+                    h["fitness"] = self.procedure_fitness(h["proc_id"])
+                    h["score"] *= 0.5 + h["fitness"]
+                if mode_boosts:
+                    for m in (meta.get("modes") or []):
+                        if m in mode_boosts:
+                            h["score"] *= 1.0 + mode_boosts[m]
         hits.sort(key=lambda h: -h["score"])
         return hits[:top_k]
 
@@ -479,6 +510,122 @@ class VSAMemory:
     @property
     def procedures(self) -> list[str]:
         return list(self._procedures.keys())
+
+    # ------------------------------------------------------------------
+    # Procedure homeostasis: outcome → fitness → ranking
+    #
+    # Biological motivation — negative feedback: the system adjusts the
+    # "activity" (selection probability) of a procedure based on its real
+    # OUTCOMES. KEY (see process well): an outcome is only VERIFIED (test
+    # passed / human confirmed / procedure objectively crashed), NOT model
+    # self-assessment — otherwise self-reinforcing drift. Stored in the
+    # procedure's meta (persists with it).
+    # ------------------------------------------------------------------
+    def record_outcome(self, proc_id: str, success: bool) -> dict:
+        """Record a VERIFIED outcome of a procedure execution.
+        success=True — confirmed success (/ok, test); False — objective
+        failure (exception during execution). Accumulates counters in
+        meta['fitness']. Returns {'success','failure','fitness'}."""
+        p = self._procedures.get(proc_id)
+        if p is None:
+            raise KeyError(f"no procedure {proc_id!r}")
+        meta = dict(p.get("meta") or {})
+        f = dict(meta.get("fitness") or {"success": 0, "failure": 0})
+        f["success" if success else "failure"] += 1
+        meta["fitness"] = f
+        p["meta"] = meta
+        return {**f, "fitness": self.procedure_fitness(proc_id)}
+
+    def procedure_fitness(self, proc_id: str) -> float:
+        """Procedure fitness ∈ (0,1) based on verified outcomes.
+        Beta-mean with Laplace smoothing: (s+1)/(s+f+2). No outcomes → 0.5
+        (neutral, ranking multiplier 1.0). One failure does not zero out —
+        it sinks gradually."""
+        p = self._procedures.get(proc_id)
+        if p is None:
+            return 0.5
+        f = (p.get("meta") or {}).get("fitness") or {}
+        s, fl = int(f.get("success", 0)), int(f.get("failure", 0))
+        return (s + 1) / (s + fl + 2)
+
+    # ------------------------------------------------------------------
+    # Procedure quarantine (ubiquitin-proteasome): weak → NOT executed.
+    # Reversible (like fact quarantine) — not a delete, to preserve the recipe.
+    # ------------------------------------------------------------------
+    def quarantine_procedure(self, proc_id: str, reason: str = "") -> bool:
+        """Mark a procedure as quarantined — it stops matching (match_trigger
+        skips it). Returns True if the state changed."""
+        p = self._procedures.get(proc_id)
+        if p is None:
+            return False
+        meta = dict(p.get("meta") or {})
+        was = bool(meta.get("quarantined"))
+        meta.update(quarantined=True, quarantine_reason=reason, quarantine_ts=time.time())
+        p["meta"] = meta
+        return not was
+
+    def unquarantine_procedure(self, proc_id: str) -> bool:
+        """Lift quarantine — the procedure matches again."""
+        p = self._procedures.get(proc_id)
+        if p is None or not (p.get("meta") or {}).get("quarantined"):
+            return False
+        meta = dict(p["meta"])
+        for k in ("quarantined", "quarantine_reason", "quarantine_ts"):
+            meta.pop(k, None)
+        p["meta"] = meta
+        return True
+
+    def prune_weak_procedures(self, min_fitness: float = 0.3,
+                              min_samples: int = 3) -> list[dict]:
+        """Quarantine procedures with LOW verified fitness. Only when
+        sufficient statistics have accumulated (success+failure ≥ min_samples)
+        — don't execute for a single failure. Does NOT delete (reversible).
+        Called manually/periodically, NOT automatically at runtime (no
+        autonomy without a human). Returns [{'proc_id','fitness','samples'}]
+        for the quarantined ones."""
+        pruned = []
+        for pid, p in self._procedures.items():
+            if (p.get("meta") or {}).get("quarantined"):
+                continue
+            f = (p.get("meta") or {}).get("fitness") or {}
+            samples = int(f.get("success", 0)) + int(f.get("failure", 0))
+            fit = self.procedure_fitness(pid)
+            if samples >= min_samples and fit < min_fitness:
+                self.quarantine_procedure(pid, reason=f"low fitness {fit:.2f} ({samples} outcomes)")
+                pruned.append({"proc_id": pid, "fitness": fit, "samples": samples})
+        return pruned
+
+    @staticmethod
+    def lint_procedure(body: dict) -> list[str]:
+        """Static proofreading of a procedure body (no reference needed —
+        relies on STRUCTURE, not on cosine-drift of output). Currently one
+        rule: a generative step (transform/execute mode=generative with an
+        out-register) whose result is never consumed downstream by a validate
+        step — a candidate for an unverified hallucination. Returns a list of
+        warnings (NOT errors): the procedure is valid, but its reliability is
+        questionable."""
+        steps = body.get("steps", [])
+        validated_regs: set[str] = set()
+        for s in steps:
+            args = s.get("args") or {}
+            for v in args.values():
+                if isinstance(v, str) and v.startswith("$"):
+                    validated_regs.add(v[1:])
+                elif isinstance(v, list):
+                    validated_regs.update(x[1:] for x in v if isinstance(x, str) and x.startswith("$"))
+        warns = []
+        for s in steps:
+            if s.get("mode") == "generative" and s.get("out"):
+                # is there a downstream validate consuming this out?
+                consumed_by_validate = any(
+                    o.get("op") == "validate" and f"${s['out']}" in str(o.get("args", {}))
+                    for o in steps
+                )
+                if not consumed_by_validate:
+                    warns.append(
+                        f"step {s.get('id')}: generative→{s['out']} without downstream validate "
+                        f"(model output is not verified)")
+        return warns
 
     # ------------------------------------------------------------------
     # Constraints — the second kind of procedural memory
@@ -517,10 +664,16 @@ class VSAMemory:
         }
         return cid
 
-    def match_constraints(self, context: str, threshold: float = 0.45) -> list[dict]:
+    def match_constraints(self, context: str, threshold: float = 0.45,
+                          mode_boosts: dict[str, float] | None = None) -> list[dict]:
         """Constraints active for the current context: always (score 1.0) +
         predicate (regex) + semantic (max cosine ≥ threshold).
-        Returns [{'id','rule','score','type'}] by descending score."""
+        Returns [{'id','rule','score','type'}] by descending score.
+
+        mode_boosts — allostery: {mode: boost}. A constraint with meta['modes']
+        intersecting the active modes gets its score raised (*= 1+boost). Thus in
+        an "irritated" mode no-sycophancy/say-back rise above others and reliably
+        enter the prompt (ordering and compliance threshold)."""
         out: list[dict] = []
         sem = []
         for cid, c in self._constraints.items():
@@ -542,6 +695,11 @@ class VSAMemory:
                 score = max(float(self._embs[i] @ qe) for i in idxs)
                 if score >= threshold:
                     out.append({"id": cid, "rule": c["rule"], "score": score, "type": "semantic"})
+        if mode_boosts:
+            for h in out:
+                for m in ((self._constraints[h["id"]].get("meta") or {}).get("modes") or []):
+                    if m in mode_boosts:
+                        h["score"] *= 1.0 + mode_boosts[m]
         out.sort(key=lambda h: -h["score"])
         return out
 

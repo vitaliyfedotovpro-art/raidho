@@ -61,6 +61,21 @@ class Session:
                 args.get("subject", ""), args.get("relation", ""), args.get("object", ""))
         return await self.tools.run(name, args)
 
+    async def run_procedure(self, proc_id: str, executor) -> str:
+        """Execute a procedure with automatic outcome tracking.
+        On success → memory.record_outcome(proc_id, True).
+        On crash (exception) → memory.record_outcome(proc_id, False) + re-raise.
+        executor is an async callable that performs the procedure steps."""
+        try:
+            result = await executor()
+            if self.memory:
+                self.memory.mem.record_outcome(proc_id, True)
+            return result
+        except Exception:
+            if self.memory:
+                self.memory.mem.record_outcome(proc_id, False)
+            raise
+
     async def chat(self, text: str) -> str:
         """Text mode: discussion/reasoning, no tools (recall active).
         Uses reason_provider — you can "think" with a smart model and "execute" with a cheap one."""
