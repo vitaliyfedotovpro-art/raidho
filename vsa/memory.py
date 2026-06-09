@@ -1,18 +1,18 @@
 """
-VSAMemory — полная композиционно-эпизодическая когнитивная память (Phase 3).
+VSAMemory — full compositional-episodic cognitive memory (Phase 3).
 
-Не демо: факты (role-binding) + эпизоды (порядок через permutation) +
-нормализация сущностей (грязные варианты → один канон) + персистентность
-(переживает сессии). Валидировано Phase 0/1/2 (алгебра держит, grounding
-выжил, дискриминатор бьёт косинус на реальном извлечении).
+Not a demo: facts (role-binding) + episodes (order via permutation) + entity
+normalization (dirty variants → one canonical form) + persistence (survives
+sessions). Validated in Phase 0/1/2 (the algebra holds, grounding survived, the
+discriminator beats raw cosine on real retrieval).
 
-Геометрия (MAP, биполярная, D=10k):
+Geometry (MAP, bipolar, D=10k):
     fact      = bundle( R_subj⊗a(s), R_rel⊗a(r), R_obj⊗a(o) )
-    episode   = bundle( ρ⁰a(e₀), ρ¹a(e₁), …, ρⁿa(eₙ) )   (ρ = циклический сдвиг)
-    a(concept)= ground(embedding) — SimHash; близкие концепты → близкие атомы.
+    episode   = bundle( ρ⁰a(e₀), ρ¹a(e₁), …, ρⁿa(eₙ) )   (ρ = cyclic shift)
+    a(concept)= ground(embedding) — SimHash; close concepts → close atoms.
 
-Эмбеддер инъектируемый (`embed_fn`) — для детерминированных тестов без модели;
-по умолчанию sentence-transformers (lazy).
+The embedder is injectable (`embed_fn`) — for deterministic, model-free tests;
+defaults to sentence-transformers (lazy).
 """
 
 from __future__ import annotations
@@ -28,17 +28,17 @@ import numpy as np
 
 from . import core
 
-# Спецбуквы, которые NFKD не раскладывает (это отдельные буквы, не база+знак).
+# Special letters that NFKD does not decompose (separate letters, not base+mark).
 _SCAND = {"ð": "d", "þ": "th", "æ": "ae", "œ": "oe", "ø": "o", "đ": "d", "ł": "l"}
 
 
 def _normalize_surface(s: str) -> str:
-    """Ключ идентичности концепта по СТРОКЕ (не по эмбеддингу).
+    """Concept identity key by STRING (not by embedding).
 
-    casefold → скандинавские спецбуквы → NFKD + снятие диакритики → схлоп пробелов.
-    «Zürich»=«ZÜRICH »=«zurich» → один ключ. Разные алфавиты не латинизируются
-    (кириллица остаётся кириллицей) — кросс-алфавитную идентичность задаёт
-    таблица алиасов, а не догадка."""
+    casefold → Scandinavian special letters → NFKD + diacritic removal → collapse
+    whitespace. "Zürich"="ZÜRICH "="zurich" → one key. Different alphabets are not
+    transliterated (Cyrillic stays Cyrillic) — cross-alphabet identity is defined
+    by the alias table, not by guessing."""
     s = s.strip().casefold()
     s = "".join(_SCAND.get(ch, ch) for ch in s)
     s = unicodedata.normalize("NFKD", s)
@@ -62,8 +62,8 @@ class VSAMemory:
         self.D = D
         self._embedder_model = embedder_model
         self._normalize_threshold = float(normalize_threshold)
-        # Как решается тождество сущностей: "string" (нормализация + алиасы, безопасно)
-        # или "embedding" (legacy: косинус ≥ threshold — плодит ложные слияния).
+        # How entity identity is decided: "string" (normalization + aliases, safe)
+        # or "embedding" (legacy: cosine ≥ threshold — breeds false merges).
         self._identity_mode = identity_mode
         self._alias_map = {
             _normalize_surface(k): _normalize_surface(v)
@@ -78,8 +78,8 @@ class VSAMemory:
 
         self._roles = {n: core.random_atoms(1, D, self._rng)[0] for n in self.ROLE_NAMES}
 
-        # Канонический кодбук концептов. _atoms — float ±1 (нужны для bind/
-        # bundle/permute); _atom_bits — их bit-pack (для popcount-cleanup).
+        # Canonical concept codebook. _atoms — float ±1 (needed for bind/bundle/
+        # permute); _atom_bits — their bit-pack (for popcount cleanup).
         self._names: list[str] = []
         self._kinds: list[str] = []          # "entity" | "relation" | "event"
         self._atoms: list[np.ndarray] = []
@@ -88,26 +88,26 @@ class VSAMemory:
         self._index: dict[str, int] = {}     # surface (lower) → canonical idx
         self._aliases: dict[int, list[str]] = {}
 
-        # Факты и эпизоды. Факты храним ТОЛЬКО bit-packed (_fact_bits) — это
-        # доминирующий по RAM слой (×32 экономии); float ±1 реконструируем по
-        # требованию для unbind топ-K (≤5/запрос). Ранкинг идентичен float-версии.
+        # Facts and episodes. Facts are stored ONLY bit-packed (_fact_bits) — this
+        # is the RAM-dominant layer (×32 savings); float ±1 is reconstructed on
+        # demand for top-K unbind (≤5/query). Ranking is identical to the float version.
         self._fact_idx: list[tuple[int, int, int]] = []
         self._fact_bits: list[np.ndarray] = []
         self._fact_meta: list[dict] = []
         self._episodes: dict[str, dict] = {}
         self._ep_counter = 0
 
-        # Процедуры (procedural memory). VSA хранит триггер + тело и матчит
-        # триггер; ИСПОЛНЯЕТ тело — внешний интерпретатор (procedure_runner.py).
+        # Procedures (procedural memory). VSA stores the trigger + body and matches
+        # the trigger; the body is EXECUTED by an external interpreter (procedure_runner.py).
         self._procedures: dict[str, dict] = {}
 
-        # Контракты (constraints). Второй род: НЕ исполняются — правило/тон
-        # вшивается в системный промпт, когда триггер активен. Триггер:
-        # always (всегда) | predicate | semantic (как у процедур).
+        # Constraints. The second kind: NOT executed — the rule/tone is woven into
+        # the system prompt when the trigger is active. Trigger:
+        # always | predicate | semantic (as for procedures).
         self._constraints: dict[str, dict] = {}
 
     # ------------------------------------------------------------------
-    # Эмбеддинг / grounding
+    # Embedding / grounding
     # ------------------------------------------------------------------
     def _ensure_proj(self, emb_dim: int) -> None:
         if self._proj is None:
@@ -129,25 +129,25 @@ class VSAMemory:
         return e
 
     # ------------------------------------------------------------------
-    # Кодбук с нормализацией сущностей
+    # Codebook with entity normalization
     # ------------------------------------------------------------------
     def _concept_index(self, concept: str, kind: str) -> int:
-        """Канонический индекс концепта.
+        """Canonical index of a concept.
 
-        Идентичность сущностей решается СТРОКОЙ (нормализация + таблица алиасов),
-        а не эмбеддингом: косинус кодирует смысловую близость, а не тождество
-        референта (напр. «Paris»↔«France»=0.84 > «Paris»↔«Texas»=0.64 — порог
-        бессилен). Эмбеддинг оставлен только для recall (search/grounding).
-        Старое поведение — identity_mode='embedding'. Bias: не уверены → НОВЫЙ
-        концепт (дубль безвреден, ложное слияние — тихая порча фактов)."""
+        Entity identity is decided by STRING (normalization + alias table), not by
+        embedding: cosine encodes semantic closeness, not referent identity
+        (e.g. "Paris"↔"France"=0.84 > "Paris"↔"Texas"=0.64 — a threshold is
+        helpless). The embedding is kept only for recall (search/grounding).
+        Old behavior — identity_mode='embedding'. Bias: when unsure → a NEW concept
+        (a duplicate is harmless, a false merge silently corrupts facts)."""
         key = _normalize_surface(concept)
-        key = self._alias_map.get(key, key)          # декларативные алиасы
+        key = self._alias_map.get(key, key)          # declarative aliases
         if key in self._index:
             return self._index[key]
         emb = self._embed(concept)
 
-        # Legacy: тождество по эмбеддингу. Off by default; НИКОГДА для событий
-        # (реплики-эпизоды — не концепты для дедупа).
+        # Legacy: identity by embedding. Off by default; NEVER for events
+        # (utterance-episodes are not concepts to dedup).
         if self._identity_mode == "embedding" and kind != "event":
             same = [i for i, k in enumerate(self._kinds) if k == kind]
             if same:
@@ -181,13 +181,13 @@ class VSAMemory:
         return self._names[idxs[b]], float(sims[b]), idxs[b]
 
     # ------------------------------------------------------------------
-    # Факты
+    # Facts
     # ------------------------------------------------------------------
     def add_triple(self, subject: str, relation: str, obj: str, meta: dict | None = None) -> int:
         si = self._concept_index(subject, "entity")
         ri = self._concept_index(relation, "relation")
         oi = self._concept_index(obj, "entity")
-        if (si, ri, oi) in self._fact_idx:           # дедуп: тот же триплет не дублируем
+        if (si, ri, oi) in self._fact_idx:           # dedup: don't duplicate the same triple
             return self._fact_idx.index((si, ri, oi))
         fact = core.bundle(np.stack([
             core.bind(self._roles["subject"], self._atoms[si]),
@@ -195,13 +195,13 @@ class VSAMemory:
             core.bind(self._roles["object"], self._atoms[oi]),
         ]), self._rng)
         self._fact_idx.append((si, ri, oi))
-        self._fact_bits.append(core.pack_bipolar(fact))   # храним только упаковку
+        self._fact_bits.append(core.pack_bipolar(fact))   # store only the packed form
         self._fact_meta.append(meta or {})
         return len(self._fact_bits) - 1
 
     def query(self, known: dict[str, str], target_role: str) -> dict:
-        """known: {role: concept}; возвращает восстановленный концепт target_role
-        + извлечённый триплет. Различает (X,r,Y) и (Y,r,X) по РОЛЯМ."""
+        """known: {role: concept}; returns the reconstructed concept for target_role
+        + the retrieved triple. Distinguishes (X,r,Y) from (Y,r,X) by ROLES."""
         if not self._fact_bits:
             return {"answer": None, "score": 0.0, "triple": None, "fact_idx": -1}
         terms = []
@@ -211,35 +211,35 @@ class VSAMemory:
             terms.append(core.bind(self._roles[role], self._atoms[ci]))
         probe = core.bundle(np.stack(terms), self._rng)
 
-        # Backtracking: проверяем топ-K ближайших фактов. Similarity — popcount по
-        # упакованным фактам (= (mem @ probe)/D на ±1, ранкинг идентичен).
+        # Backtracking: check the top-K nearest facts. Similarity — popcount over
+        # the packed facts (= (mem @ probe)/D on ±1, ranking identical).
         sims_facts = core.hamming_cosine(
             np.stack(self._fact_bits), core.pack_bipolar(probe), self.D)
-        # Карантинные факты не участвуют в структурном recall (маскируем).
+        # Quarantined facts do not take part in structural recall (mask them out).
         for i in range(len(sims_facts)):
             if self._is_quarantined(i):
                 sims_facts[i] = -np.inf
         top_k = min(5, len(self._fact_bits))
         best_fidxs = np.argsort(-sims_facts)[:top_k]
-        
+
         kind = "relation" if target_role == "relation" else "entity"
-        
+
         best_result = {"answer": None, "score": -1.0, "triple": None, "fact_idx": -1, "_mq": -1.0}
-        
+
         for fidx in best_fidxs:
             fidx = int(fidx)
-            if not np.isfinite(sims_facts[fidx]):   # карантинный — пропускаем
+            if not np.isfinite(sims_facts[fidx]):   # quarantined — skip
                 continue
-            fact_vec = core.unpack_bipolar(self._fact_bits[fidx], self.D)  # ±1 из упаковки
+            fact_vec = core.unpack_bipolar(self._fact_bits[fidx], self.D)  # ±1 from packing
             unbound = core.unbind(fact_vec, self._roles[target_role])
             name, score, _ = self._cleanup(unbound, kind)
-            
-            # Учитываем и релевантность факта запросу, и чистоту извлечения.
-            # Клампим негативы: anti-correlated факт (sims<0) или грязное
-            # извлечение (score<0) — не «успех». Без клампа neg×neg давал бы
-            # ложно-высокое match_quality и мог обойти честное совпадение.
+
+            # Account for both fact-to-query relevance and extraction cleanliness.
+            # Clamp negatives: an anti-correlated fact (sims<0) or a dirty
+            # extraction (score<0) is not a "success". Without the clamp neg×neg
+            # would yield a falsely high match_quality and could beat an honest match.
             match_quality = max(0.0, float(sims_facts[fidx])) * max(0.0, score)
-            
+
             if match_quality > best_result["_mq"]:
                 si, ri, oi = self._fact_idx[fidx]
                 best_result = {
@@ -249,23 +249,24 @@ class VSAMemory:
                     "fact_idx": fidx,
                     "_mq": match_quality
                 }
-            
-            # Для 3-term bundle математическое матожидание score ≈ 0.5.
-            # Если извлекли со score > 0.35 из релевантного факта — это успех, дальше не ищем.
+
+            # For a 3-term bundle the expected score is ≈ 0.5. If we extracted with
+            # score > 0.35 from a relevant fact — that's a success, stop searching.
             if score > 0.35 and sims_facts[fidx] > 0.2:
                 break
-                
+
         best_result.pop("_mq", None)
         return best_result
 
     def search(self, query: str, top_k: int = 8, include_quarantined: bool = False) -> list[dict]:
-        """Similarity-recall по фактам (свободный запрос): эмбеддинг запроса vs
-        эмбеддинг факта (= нормированная сумма эмбеддингов его концептов).
-        Возвращает [{'triple': (s,r,o), 'score': cos, 'fact_idx': i, 'quarantined': bool}],
-        отсортировано по убыванию. Это «ANN-слой снизу» — дополняет структурный query().
+        """Similarity recall over facts (free-form query): query embedding vs
+        fact embedding (= normalized sum of its concept embeddings).
+        Returns [{'triple': (s,r,o), 'score': cos, 'fact_idx': i, 'quarantined': bool}],
+        sorted descending. This is the "ANN layer underneath" — it complements the
+        structural query().
 
-        Карантинные факты («забудь об этом») по умолчанию НЕ всплывают;
-        include_quarantined=True нужен только команде возврата/листинга."""
+        Quarantined facts ("forget about this") do NOT surface by default;
+        include_quarantined=True is only needed by the restore/listing command."""
         if not self._fact_idx:
             return []
         active = [
@@ -297,15 +298,15 @@ class VSAMemory:
         ]
 
     # ------------------------------------------------------------------
-    # Карантин фактов («забудь об этом» — мягкое забывание без удаления)
+    # Fact quarantine ("forget about this" — soft forgetting without deletion)
     # ------------------------------------------------------------------
     def _is_quarantined(self, i: int) -> bool:
         m = self._fact_meta[i] if 0 <= i < len(self._fact_meta) else None
         return bool(m) and bool(m.get("quarantined"))
 
     def quarantine(self, fact_indices, reason: str = "") -> int:
-        """Пометить факты как карантинные (флаг в _fact_meta, переживает сохранение).
-        Факт остаётся в памяти, но не всплывает в recall. Возвращает число новых."""
+        """Mark facts as quarantined (a flag in _fact_meta, survives saving).
+        The fact stays in memory but does not surface in recall. Returns the count of new ones."""
         n = 0
         for i in fact_indices:
             if 0 <= i < len(self._fact_meta):
@@ -318,7 +319,7 @@ class VSAMemory:
         return n
 
     def unquarantine(self, fact_indices) -> int:
-        """Снять карантин — факт снова всплывает в recall. Возвращает число снятых."""
+        """Lift quarantine — the fact surfaces in recall again. Returns the count lifted."""
         n = 0
         for i in fact_indices:
             if 0 <= i < len(self._fact_meta) and (self._fact_meta[i] or {}).get("quarantined"):
@@ -330,7 +331,7 @@ class VSAMemory:
         return n
 
     def quarantined(self) -> list[dict]:
-        """Всё, что сейчас в карантине: [{'fact_idx','triple','reason','ts'}]."""
+        """Everything currently quarantined: [{'fact_idx','triple','reason','ts'}]."""
         out = []
         for i, m in enumerate(self._fact_meta):
             if m and m.get("quarantined"):
@@ -344,7 +345,7 @@ class VSAMemory:
         return out
 
     # ------------------------------------------------------------------
-    # Эпизоды (порядок через permutation)
+    # Episodes (order via permutation)
     # ------------------------------------------------------------------
     def add_episode(self, items: list[str], episode_id: str | None = None) -> str:
         idxs = [self._concept_index(it, "event") for it in items]
@@ -368,7 +369,7 @@ class VSAMemory:
         return [self.recall_at(episode_id, p) for p in range(len(ep["item_idx"]))]
 
     def episode_items(self, episode_id: str) -> list[str]:
-        """Точный список элементов эпизода (из кодбука, без lossy-recall)."""
+        """Exact list of episode items (from the codebook, no lossy recall)."""
         ep = self._episodes.get(episode_id)
         if not ep:
             return []
@@ -383,26 +384,26 @@ class VSAMemory:
         return self.recall_at(episode_id, pos + 1) if pos + 1 < n else None
 
     # ------------------------------------------------------------------
-    # Процедуры (procedural memory)
+    # Procedures (procedural memory)
     #
-    # Роль VSA — ПОИСК, не исполнение: хранит процедуру и матчит «какая
-    # подходит под текущую ситуацию». Тело — структурированная программа
-    # (опкоды/аргументы/ветви/регистры) — лежит как dict, НЕ в гипервекторе
-    # (ветвь и runtime-аргумент permutation-bundle закодировать не может).
-    # Исполняет тело отдельный интерпретатор (procedure_runner.py).
+    # The VSA role is SEARCH, not execution: it stores a procedure and matches
+    # "which one fits the current situation". The body is a structured program
+    # (opcodes/args/branches/registers) — it lives as a dict, NOT in the
+    # hypervector (a branch and a runtime arg cannot be encoded by permutation-
+    # bundle). The body is executed by a separate interpreter (procedure_runner.py).
     #
-    # Триггер двух родов:
-    #   predicate — точный паттерн (regex по тексту контекста), без VSA;
-    #   semantic  — нечёткий матч по ЯКОРЯМ-примерам: каждый якорь кладётся в
-    #               кодбук как концепт kind="trigger" (персистится), score =
-    #               МАКСИМУМ косинуса контекста к любому якорю.
+    # Two kinds of trigger:
+    #   predicate — exact pattern (regex over the context text), no VSA;
+    #   semantic  — fuzzy match against EXAMPLE ANCHORS: each anchor is placed in
+    #               the codebook as a concept kind="trigger" (persisted), score =
+    #               the MAXIMUM cosine of the context to any anchor.
     #
-    # Почему якоря-примеры, а не одно описание: на живом тексте короткая реплика
-    # («надо переделать этот класс») — это ПРИМЕР ситуации, не парафраз
-    # абстрактного описания, и косинус к описанию проваливается до ~0. Несколько
-    # живых якорей резко поднимают recall (prototype-matching). Триггер задаёт
-    # либо "examples": [...] (предпочтительно), либо "situation": <текст>
-    # (трактуется как один якорь — обратная совместимость).
+    # Why example anchors rather than one description: on live text a short remark
+    # ("this class needs reworking") is an EXAMPLE of the situation, not a
+    # paraphrase of an abstract description, and cosine to the description drops to
+    # ~0. Several live anchors sharply raise recall (prototype matching). The
+    # trigger gives either "examples": [...] (preferred) or "situation": <text>
+    # (treated as a single anchor — backward compatibility).
     # ------------------------------------------------------------------
     @staticmethod
     def _trigger_anchors(trigger: dict) -> list[str]:
@@ -414,18 +415,18 @@ class VSAMemory:
 
     def add_procedure(self, proc_id: str, trigger: dict, body: dict,
                       meta: dict | None = None) -> str:
-        """Сохранить процедуру. trigger = {"type":"predicate","pattern":<regex>}
-        или {"type":"semantic","examples":[...]} (или legacy "situation":<текст>).
-        body хранится как есть. Возвращает proc_id."""
+        """Store a procedure. trigger = {"type":"predicate","pattern":<regex>}
+        or {"type":"semantic","examples":[...]} (or legacy "situation":<text>).
+        The body is stored as is. Returns proc_id."""
         ttype = trigger.get("type")
         trigger_idxs: list[int] = []
         if ttype == "semantic":
             anchors = self._trigger_anchors(trigger)
             if not anchors:
-                raise ValueError("semantic trigger: нужен 'examples' или 'situation'")
+                raise ValueError("semantic trigger: needs 'examples' or 'situation'")
             trigger_idxs = [self._concept_index(a, "trigger") for a in anchors]
         elif ttype == "predicate":
-            re.compile(trigger["pattern"])  # битый паттерн — падаем сразу, не в рантайме
+            re.compile(trigger["pattern"])  # broken pattern — fail now, not at runtime
         else:
             raise ValueError(f"unknown trigger type: {ttype!r}")
         self._procedures[proc_id] = {
@@ -438,10 +439,10 @@ class VSAMemory:
 
     def match_trigger(self, context: str, threshold: float = 0.45,
                       top_k: int = 3) -> list[dict]:
-        """Какие процедуры подходят под контекст. Предикаты — regex (score 1.0);
-        семантика — МАКС косинус эмбеддинга контекста к якорям триггера (score),
-        отсекается по threshold. Возвращает [{'proc_id','score','type'}] по
-        убыванию score."""
+        """Which procedures fit the context. Predicates — regex (score 1.0);
+        semantic — MAX cosine of the context embedding to the trigger anchors
+        (score), cut off by threshold. Returns [{'proc_id','score','type'}] by
+        descending score."""
         hits: list[dict] = []
         sem = []
         for pid, p in self._procedures.items():
@@ -454,21 +455,21 @@ class VSAMemory:
         if sem:
             qe = self._embed(context)
             for pid, p in sem:
-                # обратная совместимость: старый ключ trigger_idx (один) → список
+                # backward compatibility: old key trigger_idx (single) → list
                 idxs = p.get("trigger_idxs")
                 if idxs is None:
                     one = p.get("trigger_idx")
                     idxs = [one] if one is not None else []
                 if not idxs:
                     continue
-                score = max(float(self._embs[i] @ qe) for i in idxs)  # макс по якорям
+                score = max(float(self._embs[i] @ qe) for i in idxs)  # max over anchors
                 if score >= threshold:
                     hits.append({"proc_id": pid, "score": score, "type": "semantic"})
         hits.sort(key=lambda h: -h["score"])
         return hits[:top_k]
 
     def get_procedure(self, proc_id: str) -> dict | None:
-        """Тело + meta процедуры (для интерпретатора). None если нет."""
+        """Procedure body + meta (for the interpreter). None if missing."""
         p = self._procedures.get(proc_id)
         if not p:
             return None
@@ -480,21 +481,21 @@ class VSAMemory:
         return list(self._procedures.keys())
 
     # ------------------------------------------------------------------
-    # Контракты (constraints) — второй род процедурной памяти
+    # Constraints — the second kind of procedural memory
     #
-    # Procedure ИСПОЛНЯЕТСЯ (шаги). Constraint НЕ исполняется — его rule
-    # вшивается в системный промпт, когда триггер активен. Это «как себя
-    # вести», а не «что сделать»: тон (no-sycophancy), осторожность
-    # (verify-before-claim), протокол (say-back). Триггер:
-    #   always    — правило действует на каждом ходу;
-    #   predicate — regex по контексту;
-    #   semantic  — max косинус к якорям (как у процедур).
+    # A Procedure is EXECUTED (steps). A Constraint is NOT executed — its rule is
+    # woven into the system prompt when the trigger is active. It is "how to
+    # behave", not "what to do": tone (no-sycophancy), caution
+    # (verify-before-claim), protocol (say-back). Trigger:
+    #   always    — the rule applies on every turn;
+    #   predicate — regex over the context;
+    #   semantic  — max cosine to anchors (as for procedures).
     # ------------------------------------------------------------------
     def add_constraint(self, cid: str, trigger: dict, rule: str,
                        meta: dict | None = None) -> str:
-        """Сохранить контракт. trigger = {"type":"always"} |
+        """Store a constraint. trigger = {"type":"always"} |
         {"type":"predicate","pattern":..} | {"type":"semantic","examples":[..]}.
-        rule — текст, вшиваемый в системный промпт. Возвращает cid."""
+        rule — the text woven into the system prompt. Returns cid."""
         ttype = trigger.get("type")
         trigger_idxs: list[int] = []
         if ttype == "always":
@@ -502,7 +503,7 @@ class VSAMemory:
         elif ttype == "semantic":
             anchors = self._trigger_anchors(trigger)
             if not anchors:
-                raise ValueError("semantic constraint: нужен 'examples' или 'situation'")
+                raise ValueError("semantic constraint: needs 'examples' or 'situation'")
             trigger_idxs = [self._concept_index(a, "trigger") for a in anchors]
         elif ttype == "predicate":
             re.compile(trigger["pattern"])
@@ -517,9 +518,9 @@ class VSAMemory:
         return cid
 
     def match_constraints(self, context: str, threshold: float = 0.45) -> list[dict]:
-        """Активные контракты для текущего контекста: always (score 1.0) +
-        predicate (regex) + semantic (max косинус ≥ threshold).
-        Возвращает [{'id','rule','score','type'}] по убыванию score."""
+        """Constraints active for the current context: always (score 1.0) +
+        predicate (regex) + semantic (max cosine ≥ threshold).
+        Returns [{'id','rule','score','type'}] by descending score."""
         out: list[dict] = []
         sem = []
         for cid, c in self._constraints.items():
@@ -549,17 +550,17 @@ class VSAMemory:
         return list(self._constraints.keys())
 
     # ------------------------------------------------------------------
-    # Персистентность (память переживает сессии)
+    # Persistence (memory survives sessions)
     # ------------------------------------------------------------------
     def save(self, path: str | Path) -> None:
         base = Path(path)
         base.parent.mkdir(parents=True, exist_ok=True)
-        # proj — фиксированная матрица emb_dim×D (~15 МБ, gaussian → плохо жмётся).
-        # Раньше она писалась в .npz при КАЖДОМ save (т.е. каждую реплику бота) —
-        # тяжёлый I/O без нужды, т.к. proj неизменна после первого embedding.
-        # Теперь пишем её ОДИН раз в sidecar .proj.npy; основной .npz держит только
-        # лёгкие roles/embs (~сотни КБ). Загрузка остаётся обратно-совместимой:
-        # старый .npz с ключом proj внутри читается как прежде (см. load).
+        # proj — a fixed emb_dim×D matrix (~15 MB, gaussian → compresses poorly).
+        # It used to be written into the .npz on EVERY save (i.e. every bot reply) —
+        # heavy I/O for nothing, since proj is immutable after the first embedding.
+        # Now it is written ONCE to a sidecar .proj.npy; the main .npz holds only the
+        # light roles/embs (~hundreds of KB). Loading stays backward-compatible:
+        # an old .npz with the proj key inside still reads as before (see load).
         if self._proj is not None and self._proj.size > 0:
             proj_path = base.with_suffix(".proj.npy")
             need_write = True
@@ -590,10 +591,10 @@ class VSAMemory:
             "fact_idx": self._fact_idx, "fact_meta": self._fact_meta,
             "episodes": {k: v["item_idx"] for k, v in self._episodes.items()},
             "ep_counter": self._ep_counter,
-            # Процедуры JSON-safe целиком (trigger/trigger_idxs/body/meta) — тело
-            # не в гипервекторе, так что сохраняется и грузится как есть.
+            # Procedures are fully JSON-safe (trigger/trigger_idxs/body/meta) — the
+            # body is not in the hypervector, so it saves and loads as is.
             "procedures": self._procedures,
-            "constraints": self._constraints,  # контракты тоже JSON-safe целиком
+            "constraints": self._constraints,  # constraints are also fully JSON-safe
         }
         base.with_suffix(".json").write_text(json.dumps(meta, ensure_ascii=False))
 
@@ -609,7 +610,7 @@ class VSAMemory:
                 identity_mode=meta.get("identity_mode", "string"))
         m._alias_map = dict(meta.get("alias_map", {}))
         m._emb_dim = meta["emb_dim"]
-        # proj: новый формат — sidecar .proj.npy; старый — ключ proj в .npz.
+        # proj: new format — sidecar .proj.npy; old — proj key inside the .npz.
         proj_path = base.with_suffix(".proj.npy")
         if proj_path.exists():
             m._proj = np.load(proj_path)
@@ -618,7 +619,7 @@ class VSAMemory:
         else:
             m._proj = None
         if m._proj is not None and m._proj.size == 0:
-            m._proj = None  # пустой плейсхолдер старого формата → None (как при init)
+            m._proj = None  # empty old-format placeholder → None (as on init)
         roles = arr["roles"].astype(np.float32)
         m._roles = {n: roles[i] for i, n in enumerate(meta["role_names"])}
         m._names = list(meta["names"])
@@ -627,7 +628,7 @@ class VSAMemory:
         m._aliases = {int(k): v for k, v in meta["aliases"].items()}
         embs = arr["embs"]
         m._embs = [embs[i] for i in range(len(m._names))]
-        m._atoms = [core.ground(e, m._proj) for e in m._embs]  # детерминированно
+        m._atoms = [core.ground(e, m._proj) for e in m._embs]  # deterministic
         m._atom_bits = [core.pack_bipolar(a) for a in m._atoms]
 
         m._fact_idx = [tuple(t) for t in meta["fact_idx"]]
@@ -649,9 +650,9 @@ class VSAMemory:
             )
             m._episodes[eid] = {"item_idx": idxs, "vec": vec}
         m._ep_counter = meta["ep_counter"]
-        # Процедуры: .get для обратной совместимости со старыми снапшотами без ключа.
+        # Procedures: .get for backward compatibility with old snapshots lacking the key.
         m._procedures = meta.get("procedures", {})
-        m._constraints = meta.get("constraints", {})  # .get для обратной совместимости
+        m._constraints = meta.get("constraints", {})  # .get for backward compatibility
         return m
 
     # ------------------------------------------------------------------

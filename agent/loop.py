@@ -1,10 +1,10 @@
-"""Сессия кодера: провайдер, инструменты, нейтральная история, системный промпт
-и (опционально) VSA-память. Два режима — chat (reasoning, без инструментов) и
-code (агентный tool-loop).
+"""Coder session: provider, tools, neutral history, system prompt and
+(optionally) VSA memory. Two modes — chat (reasoning, no tools) and
+code (agentic tool-loop).
 
-Память вшита двусторонне: перед каждым ходом релевантные факты добавляются в
-системный промпт (recall), а инструмент `remember` позволяет агенту сохранять
-новые факты (доступен только когда память подключена).
+Memory is wired in both directions: before each turn the relevant facts are added
+to the system prompt (recall), and the `remember` tool lets the agent store new
+facts (available only when memory is attached).
 """
 from __future__ import annotations
 
@@ -16,12 +16,12 @@ from .providers import Provider
 from .tools import TOOLS_SPEC, Tools
 
 DEFAULT_SYSTEM = (
-    "Ты — кодер-агент. Помогаешь читать, писать и править код в рабочей директории.\n"
-    "В режиме кодинга используй инструменты (bash/read_file/write_file/list_dir) — "
-    "выполняй задачу, а не описывай её. Не выдумывай содержимое файлов — читай их. "
-    "Перед правкой смотри текущий код. Команды объясняй кратко.\n"
-    "Если подключена память — устойчивые факты (решения, имена, сроки) сохраняй "
-    "инструментом remember; блок «Релевантная память» в промпте — это recall."
+    "You are a coder agent. You help read, write and edit code in the working directory.\n"
+    "In coding mode use the tools (bash/read_file/write_file/list_dir) — "
+    "do the task, don't just describe it. Don't invent file contents — read them. "
+    "Look at the current code before editing. Explain commands briefly.\n"
+    "If memory is attached — store durable facts (decisions, names, deadlines) with "
+    "the remember tool; the 'Relevant memory' block in the prompt is recall."
 )
 
 
@@ -38,15 +38,15 @@ class Session:
     def __init__(self, provider: Provider, workdir: str | Path = ".",
                  system: str = DEFAULT_SYSTEM, memory: AgentMemory | None = None,
                  reason_provider: Provider | None = None):
-        self.provider = provider                            # исполнение (code, tool-loop)
-        self.reason_provider = reason_provider or provider  # рассуждение (chat); по умолч. тот же
+        self.provider = provider                            # execution (code, tool-loop)
+        self.reason_provider = reason_provider or provider  # reasoning (chat); same by default
         self.tools = Tools(workdir)
         self.system = system
         self.memory = memory
-        self.history: list[dict] = []  # нейтральная: [{"role","content"}]
+        self.history: list[dict] = []  # neutral: [{"role","content"}]
 
     def _system_for(self, text: str) -> str:
-        """Базовый промпт + recall релевантной памяти под текущий запрос."""
+        """Base prompt + recall of memory relevant to the current query."""
         if not self.memory:
             return self.system
         block = self.memory.recall(text)
@@ -62,15 +62,15 @@ class Session:
         return await self.tools.run(name, args)
 
     async def chat(self, text: str) -> str:
-        """Текстовый режим: обсуждение/reasoning, без инструментов (recall активен).
-        Использует reason_provider — можно «думать» умной моделью, «исполнять» дешёвой."""
+        """Text mode: discussion/reasoning, no tools (recall active).
+        Uses reason_provider — you can "think" with a smart model and "execute" with a cheap one."""
         reply = await self.reason_provider.chat(self._system_for(text), self.history, text)
         self.history += [{"role": "user", "content": text},
                          {"role": "assistant", "content": reply}]
         return reply
 
     async def code(self, task: str) -> str:
-        """Агентный режим: tool-loop выполняет задачу (recall + remember активны)."""
+        """Agentic mode: the tool-loop performs the task (recall + remember active)."""
         reply = await self.provider.agent_turn(
             self._system_for(task), self.history, task,
             self._tools_spec(), self._run_tool, on_tool=_print_tool)

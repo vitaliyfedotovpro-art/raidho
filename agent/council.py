@@ -37,7 +37,7 @@ def _render(transcript: list) -> str:
 
 
 def _agreed(text: str) -> bool:
-    """Did this turn concede? (reply opens with AGREE / agreed / согласен)."""
+    """Did this turn concede? (reply opens with AGREE; RU markers kept for robustness)."""
     head = text.strip().lower()[:24]
     return head.startswith(("agree", "agreed", "согласен", "согласна"))
 

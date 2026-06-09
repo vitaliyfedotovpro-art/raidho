@@ -3,11 +3,11 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-# Raidho (руна ᚱ — «путь/движение»). Чисто в dev-нише; GitHub handle `raidho`
-# занят — org/handle при пуше взять вариантом, имя пакета свободно.
+# Raidho (rune ᚱ — "ride/journey"). Squarely in the dev niche; the GitHub handle
+# `raidho` is taken — pick a variant org/handle when pushing, the package name is free.
 name = "raidho"
 version = "0.0.1"
-description = "Кодер-агент с компонуемо-эпизодической VSA-памятью. Provider-pluggable LLM-бэкенд."
+description = "Coder agent with compositional-episodic VSA memory. Provider-pluggable LLM backend."
 requires-python = ">=3.11"
 license = { text = "AGPL-3.0-or-later" }
 dependencies = [
@@ -15,10 +15,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Локальный эмбеддер по умолчанию (иначе embed_fn инъектируется вызывающим).
+# Default local embedder (otherwise embed_fn is injected by the caller).
 embed = ["sentence-transformers>=2.6"]
-# LLM-бэкенды (ставится тот, что нужен): Claude через официальный SDK,
-# openai-совместимые (DeepSeek и др.) через httpx.
+# LLM backends (install whichever you need): Claude via the official SDK,
+# openai-compatible (DeepSeek etc.) via httpx.
 anthropic = ["anthropic>=0.40"]
 openai-compat = ["httpx>=0.27"]
 dev = ["pytest>=8"]

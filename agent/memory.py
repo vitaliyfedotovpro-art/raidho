@@ -1,9 +1,8 @@
-"""VSA-память для агента: recall релевантных фактов в системный промпт +
-инструмент `remember` (агент сам решает, что сохранить как структурный факт).
+"""VSA memory for the agent: recall of relevant facts into the system prompt +
+a `remember` tool (the agent itself decides what to store as a structural fact).
 
-Эмбеддер по умолчанию — лёгкий детерминированный хеш (без тяжёлых зависимостей).
-Для качества инъектируй sentence-transformers или провайдерские эмбеддинги
-через embed_fn.
+The default embedder is a light deterministic hash (no heavy deps). For quality,
+inject sentence-transformers or provider embeddings via embed_fn.
 """
 from __future__ import annotations
 
@@ -14,11 +13,14 @@ import numpy as np
 
 from vsa import VSAMemory
 
+# Word tokenizer for the hash embedder. The character class intentionally covers
+# Latin + Cyrillic (RU/UK) so non-Latin words are tokenized too — multilingual by
+# design, not a leftover. Extend the class for other scripts as needed.
 _WORD = re.compile(r"[a-zа-яёіїєґ0-9]+", re.IGNORECASE)
 
 
 def hash_embed(text: str, dim: int = 256) -> np.ndarray:
-    """Детерминированный bag-of-words хеш-эмбеддинг (без внешних моделей)."""
+    """Deterministic bag-of-words hash embedding (no external models)."""
     v = np.zeros(dim, dtype=np.float32)
     for tok in _WORD.findall(text.lower()):
         h = int(hashlib.blake2b(tok.encode("utf-8"), digest_size=8).hexdigest(), 16)
@@ -28,12 +30,12 @@ def hash_embed(text: str, dim: int = 256) -> np.ndarray:
     return v / n if n > 0 else v
 
 
-# Канонический tool-spec: агент решает, что запомнить (устойчивый структурный факт).
+# Canonical tool-spec: the agent decides what to remember (a durable structural fact).
 REMEMBER_SPEC = {
     "name": "remember",
-    "description": "Сохранить факт в долговременную память как тройку "
-                   "(субъект, отношение, объект). Для устойчивого, к чему стоит "
-                   "вернуться позже: решения, предпочтения, имена, сроки.",
+    "description": "Store a fact in long-term memory as a triple "
+                   "(subject, relation, object). For durable things worth coming "
+                   "back to later: decisions, preferences, names, deadlines.",
     "parameters": {
         "type": "object",
         "properties": {
@@ -47,7 +49,7 @@ REMEMBER_SPEC = {
 
 
 class AgentMemory:
-    """Обёртка над VSAMemory: remember (запись факта) + recall (поиск в промпт)."""
+    """Wrapper over VSAMemory: remember (store a fact) + recall (search into the prompt)."""
 
     def __init__(self, mem: VSAMemory | None = None, embed_fn=None, D: int = 10_000):
         self.embed_fn = embed_fn or (lambda t: hash_embed(t))
@@ -55,10 +57,10 @@ class AgentMemory:
 
     def remember(self, subject: str, relation: str, obj: str) -> str:
         self.mem.add_triple(subject, relation, obj)
-        return f"запомнено: ({subject}) —{relation}→ ({obj})"
+        return f"remembered: ({subject}) —{relation}→ ({obj})"
 
     def recall(self, query: str, top_k: int = 5, min_score: float = 0.2) -> str:
-        """Релевантные факты как текстовый блок для системного промпта (или '')."""
+        """Relevant facts as a text block for the system prompt (or '')."""
         try:
             hits = self.mem.search(query, top_k=top_k)
         except Exception:
@@ -67,7 +69,7 @@ class AgentMemory:
         if not hits:
             return ""
         lines = [f"- {s} —{r}→ {o}" for (s, r, o) in (h["triple"] for h in hits)]
-        return "## Релевантная память\n" + "\n".join(lines)
+        return "## Relevant memory\n" + "\n".join(lines)
 
     @property
     def n_facts(self) -> int:

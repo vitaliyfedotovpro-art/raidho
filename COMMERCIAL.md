@@ -1,23 +1,23 @@
-# Коммерческое лицензирование
+# Commercial licensing
 
-Проект распространяется по модели **dual-license**: бесплатно под open-source
-лицензией и с отдельным путём для проприетарного коммерческого использования.
+This project is distributed under a **dual-license** model: free under an
+open-source license, with a separate path for proprietary commercial use.
 
 ## 1. Open Source (AGPL-3.0-or-later)
 
-Для большинства пользователей подходит **GNU Affero General Public License v3.0**.
-Это «strong copyleft», идеальная для:
-- open-source проектов;
-- академических исследований и образования;
-- публичного некоммерческого использования.
+For most users the **GNU Affero General Public License v3.0** is the right fit.
+This is "strong copyleft", ideal for:
+- open-source projects;
+- academic research and education;
+- public, non-commercial use.
 
-**Важно:** если вы предоставляете на основе этого ПО сетевой сервис (SaaS),
-AGPL требует открыть исходный код вашего сервиса его пользователям.
+**Important:** if you provide a network service (SaaS) based on this software,
+AGPL requires you to make your service's source code available to its users.
 
-## 2. Коммерческое / проприетарное использование
+## 2. Commercial / proprietary use
 
-Если условия AGPL для вас неприемлемы (например, вы встраиваете компонент в
-закрытый продукт и не хотите раскрывать исходники), доступна коммерческая
-лицензия без copyleft-обязательств.
+If the AGPL terms are not acceptable to you (e.g. you embed a component into a
+closed product and do not want to disclose the source), a commercial license
+without copyleft obligations is available.
 
-За условиями обращайтесь: **astrumproject@astrumverum.com**
+For terms, contact: **astrumproject@astrumverum.com**

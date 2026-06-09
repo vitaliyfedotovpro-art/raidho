@@ -1,15 +1,15 @@
-"""Provider-pluggable LLM-бэкенд.
+"""Provider-pluggable LLM backend.
 
-Канонический tool-spec (tools.py) транслируется в формат провайдера:
-  • Anthropic — {name, description, input_schema}; tool-loop по stop_reason="tool_use".
-  • OpenAI-совместимые (DeepSeek и др.) — {type:"function", function:{...}}; tool_calls.
+The canonical tool-spec (tools.py) is translated into the provider's format:
+  • Anthropic — {name, description, input_schema}; tool-loop by stop_reason="tool_use".
+  • OpenAI-compatible (DeepSeek etc.) — {type:"function", function:{...}}; tool_calls.
 
-История — нейтральная: list[{"role": "user"|"assistant", "content": str}]. Раунды
-инструментов в агентной петле идут во внутреннем (нативном) формате и наружу не
-протекают — возвращается только финальный текст.
+History is neutral: list[{"role": "user"|"assistant", "content": str}]. Tool rounds
+in the agent loop run in the internal (native) format and do not leak outward —
+only the final text is returned.
 
-Auth: api_key может быть строкой ИЛИ zero-arg callable (хук — например, чтобы
-продвинутый пользователь подставил свой OAuth-токен). Резолвится в момент вызова.
+Auth: api_key may be a string OR a zero-arg callable (a hook — e.g. so an advanced
+user can supply their own OAuth token). It is resolved at call time.
 """
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ ToolRunner = Callable[[str, dict], Awaitable[str]]
 
 
 def _resolve_key(key) -> str:
-    """Строка или callable-хук → строка ключа."""
+    """String or callable hook → key string."""
     return key() if callable(key) else (key or "")
 
 
@@ -34,7 +34,7 @@ def _preview(args: dict) -> str:
 
 
 class Provider:
-    """Базовый интерфейс. chat — текстовый режим, agent_turn — кодинг с tool-loop."""
+    """Base interface. chat — text mode, agent_turn — coding with a tool-loop."""
 
     name = "base"
 
@@ -55,7 +55,7 @@ class AnthropicProvider(Provider):
         self.model = model
 
     def _client(self):
-        from anthropic import AsyncAnthropic  # ленивый импорт — зависимость опциональна
+        from anthropic import AsyncAnthropic  # lazy import — dependency is optional
         return AsyncAnthropic(api_key=_resolve_key(self._key) or None)
 
     @staticmethod
@@ -65,7 +65,7 @@ class AnthropicProvider(Provider):
 
     @staticmethod
     def _text(content) -> str:
-        return "".join(b.text for b in content if b.type == "text") or "(пусто)"
+        return "".join(b.text for b in content if b.type == "text") or "(empty)"
 
     async def chat(self, system: str, history: list, user_text: str) -> str:
         client = self._client()
@@ -96,11 +96,11 @@ class AnthropicProvider(Provider):
                     results.append({"type": "tool_result",
                                     "tool_use_id": b.id, "content": out})
             msgs.append({"role": "user", "content": results})
-        return "(достигнут лимит итераций агента)"
+        return "(agent iteration limit reached)"
 
 
 class OpenAICompatProvider(Provider):
-    """OpenAI-совместимый chat/completions: DeepSeek, OpenAI, локальные шлюзы."""
+    """OpenAI-compatible chat/completions: DeepSeek, OpenAI, local gateways."""
 
     def __init__(self, api_key=None, model: str = "deepseek-chat",
                  base_url: str = DEEPSEEK_BASE_URL, name: str = "openai-compat"):
@@ -116,7 +116,7 @@ class OpenAICompatProvider(Provider):
             "parameters": t["parameters"]}} for t in tools_spec]
 
     async def _post(self, payload: dict) -> dict:
-        import httpx  # ленивый импорт
+        import httpx  # lazy import
         async with httpx.AsyncClient(timeout=120) as c:
             r = await c.post(self.base_url,
                              headers={"Authorization": f"Bearer {_resolve_key(self._key)}"},
@@ -129,7 +129,7 @@ class OpenAICompatProvider(Provider):
         data = await self._post({"model": self.model, "temperature": 0, "messages": msgs})
         if "choices" not in data:
             return f"[LLM error: {data.get('error', data)}]"
-        return data["choices"][0]["message"].get("content") or "(пусто)"
+        return data["choices"][0]["message"].get("content") or "(empty)"
 
     async def agent_turn(self, system, history, user_text, tools_spec, tools,
                          max_iters=12, on_tool=None) -> str:
@@ -145,7 +145,7 @@ class OpenAICompatProvider(Provider):
             msgs.append(m)
             tcs = m.get("tool_calls")
             if not tcs:
-                return m.get("content") or "(пусто)"
+                return m.get("content") or "(empty)"
             for tc in tcs:
                 fn = tc["function"]["name"]
                 try:
@@ -157,17 +157,17 @@ class OpenAICompatProvider(Provider):
                 out = await tools(fn, fargs)
                 msgs.append({"role": "tool", "tool_call_id": tc.get("id", ""),
                              "content": out})
-        return "(достигнут лимит итераций агента)"
+        return "(agent iteration limit reached)"
 
 
 def get_provider(config: dict) -> Provider:
-    """Фабрика по конфигу.
+    """Factory from a config dict.
 
     config = {
         "provider": "anthropic" | "deepseek" | "openai" | "openai-compat",
-        "api_key":  str | callable,   # callable = pluggable auth-хук (напр. OAuth)
-        "model":    str,              # опционально
-        "base_url": str,              # для openai-compat
+        "api_key":  str | callable,   # callable = pluggable auth hook (e.g. OAuth)
+        "model":    str,              # optional
+        "base_url": str,              # for openai-compat
     }
     """
     kind = (config.get("provider") or "anthropic").lower()
@@ -185,4 +185,4 @@ def get_provider(config: dict) -> Provider:
         return OpenAICompatProvider(api_key=key, model=model or "default",
                                     base_url=config.get("base_url", OPENAI_BASE_URL),
                                     name="openai-compat")
-    raise ValueError(f"неизвестный provider: {kind}")
+    raise ValueError(f"unknown provider: {kind}")

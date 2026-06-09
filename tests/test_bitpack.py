@@ -1,6 +1,6 @@
-"""Регресс-тест bit-packed similarity: ранкинг идентичен float, recall не падает.
+"""Regression test for bit-packed similarity: ranking identical to float, recall holds.
 
-Запуск: `python tests/test_bitpack.py` или `pytest tests/test_bitpack.py`.
+Run: `python tests/test_bitpack.py` or `pytest tests/test_bitpack.py`.
 """
 import os
 import tempfile
@@ -27,7 +27,7 @@ def _emb_fn():
 
 
 def test_identity_popcount_equals_float():
-    """popcount-cos == (cb @ vec)/D на ±1, бит-в-бит (ранкинг тот же)."""
+    """popcount-cos == (cb @ vec)/D on ±1, bit-for-bit (same ranking)."""
     rng = np.random.default_rng(7)
     M = np.where(rng.integers(0, 2, (2000, D)) > 0, 1.0, -1.0).astype(np.float32)
     v = np.where(rng.integers(0, 2, D) > 0, 1.0, -1.0).astype(np.float32)
@@ -62,7 +62,7 @@ def test_save_load_preserves_recall():
 
 
 def test_storage_is_bitpacked():
-    """Факт хранится uint8 по D/8 байт (×32 против float32)."""
+    """A fact is stored as uint8 over D/8 bytes (×32 vs float32)."""
     m = VSAMemory(D=D, seed=0, embed_fn=_emb_fn())
     m.add_triple("a", "r", "b")
     fb = m._fact_bits[0]
@@ -87,5 +87,5 @@ if __name__ == "__main__":
     test_storage_is_bitpacked()
     print("4) storage bit-packed ×32: OK")
     test_episodes_intact()
-    print("5) эпизоды: OK")
-    print("\nВСЕ ПРОВЕРКИ ПРОЙДЕНЫ")
+    print("5) episodes: OK")
+    print("\nALL CHECKS PASSED")

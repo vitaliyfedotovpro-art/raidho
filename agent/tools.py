@@ -1,32 +1,32 @@
-"""Инструменты кодера (bash/read/write/list) + канонический tool-spec.
+"""Coder tools (bash/read/write/list) + the canonical tool-spec.
 
-Канонический формат — нейтральный JSON Schema на инструмент; провайдеры
-транслируют его в свой формат. Исполнение — в РАБОЧЕЙ директории (workdir),
-без песочницы: инструмент создаётся под конкретный workdir вызывающим.
+The canonical format is a neutral JSON Schema per tool; providers translate it
+into their own format. Execution happens in the WORKING directory (workdir),
+unsandboxed: the tool is created for a specific workdir by the caller.
 """
 from __future__ import annotations
 
 import asyncio
 from pathlib import Path
 
-MAX_OUTPUT = 8000  # обрезка вывода, чтобы не раздувать контекст
+MAX_OUTPUT = 8000  # truncate output so it does not bloat the context
 
-# Канонический tool-spec: name / description / parameters(JSON Schema).
-# Провайдеры переводят это в input_schema (Anthropic) или function (OpenAI).
+# Canonical tool-spec: name / description / parameters(JSON Schema).
+# Providers translate this into input_schema (Anthropic) or function (OpenAI).
 TOOLS_SPEC = [
     {
         "name": "bash",
-        "description": "Выполнить shell-команду в рабочей директории "
-                       "(полный доступ). Для сборки, запуска, git, поиска, установки.",
+        "description": "Run a shell command in the working directory "
+                       "(full access). For building, running, git, search, install.",
         "parameters": {
             "type": "object",
-            "properties": {"command": {"type": "string", "description": "shell-команда"}},
+            "properties": {"command": {"type": "string", "description": "shell command"}},
             "required": ["command"],
         },
     },
     {
         "name": "read_file",
-        "description": "Прочитать файл (путь относительно workdir или абсолютный).",
+        "description": "Read a file (path relative to workdir or absolute).",
         "parameters": {
             "type": "object",
             "properties": {"path": {"type": "string"}},
@@ -35,7 +35,7 @@ TOOLS_SPEC = [
     },
     {
         "name": "write_file",
-        "description": "Записать/перезаписать файл содержимым.",
+        "description": "Write/overwrite a file with the given content.",
         "parameters": {
             "type": "object",
             "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
@@ -44,7 +44,7 @@ TOOLS_SPEC = [
     },
     {
         "name": "list_dir",
-        "description": "Список файлов в директории (по умолчанию workdir).",
+        "description": "List files in a directory (workdir by default).",
         "parameters": {
             "type": "object",
             "properties": {"path": {"type": "string"}},
@@ -55,7 +55,7 @@ TOOLS_SPEC = [
 
 
 class Tools:
-    """Исполнитель инструментов, привязанный к рабочей директории."""
+    """Tool executor bound to a working directory."""
 
     def __init__(self, workdir: str | Path = "."):
         self.workdir = Path(workdir).resolve()
@@ -76,25 +76,25 @@ class Tools:
         return res[:MAX_OUTPUT] if res else "(no output)"
 
     async def run(self, name: str, args: dict) -> str:
-        """Диспетчер: имя инструмента + аргументы → строковый результат."""
+        """Dispatcher: tool name + args → string result."""
         try:
             if name == "bash":
                 return await self.bash(args.get("command", ""))
             if name == "read_file":
                 p = self._resolve(args["path"])
                 if not p.exists():
-                    return f"(нет файла {p})"
+                    return f"(no file {p})"
                 return p.read_text(encoding="utf-8", errors="replace")[:MAX_OUTPUT]
             if name == "write_file":
                 p = self._resolve(args["path"])
                 p.parent.mkdir(parents=True, exist_ok=True)
                 content = args.get("content", "")
                 p.write_text(content, encoding="utf-8")
-                return f"записано: {p} ({len(content)} символов)"
+                return f"written: {p} ({len(content)} chars)"
             if name == "list_dir":
                 p = self._resolve(args.get("path", "."))
                 items = sorted(x.name + ("/" if x.is_dir() else "") for x in p.iterdir())
-                return "\n".join(items) or "(пусто)"
-            return f"(неизвестный инструмент {name})"
-        except Exception as e:  # noqa: BLE001 — инструмент не должен ронять петлю
-            return f"[ошибка инструмента {name}: {type(e).__name__}: {e}]"
+                return "\n".join(items) or "(empty)"
+            return f"(unknown tool {name})"
+        except Exception as e:  # noqa: BLE001 — a tool must not crash the loop
+            return f"[tool error {name}: {type(e).__name__}: {e}]"

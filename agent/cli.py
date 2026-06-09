@@ -1,18 +1,18 @@
-"""CLI кодера: два режима (text / code), provider-pluggable бэкенд.
+"""Coder CLI: two modes (text / code), provider-pluggable backend.
 
-Конфиг из переменных окружения:
+Config from environment variables:
   CODER_PROVIDER         anthropic | deepseek | openai | openai-compat (default anthropic)
-  CODER_MODEL            переопределить модель исполнения
-  CODER_BASE_URL         endpoint для openai-compat
-  CODER_REASON_PROVIDER  (опц.) отдельный провайдер для reasoning-режима (text)
-  CODER_REASON_MODEL     (опц.) модель reasoning-провайдера
+  CODER_MODEL            override the execution model
+  CODER_BASE_URL         endpoint for openai-compat
+  CODER_REASON_PROVIDER  (opt.) separate provider for reasoning mode (text)
+  CODER_REASON_MODEL     (opt.) reasoning provider's model
   ANTHROPIC_API_KEY / DEEPSEEK_API_KEY / OPENAI_API_KEY / CODER_API_KEY
 
-Сплит «умная модель думает / дешёвая исполняет»: задай разные провайдеры для
-исполнения (CODER_PROVIDER) и рассуждения (CODER_REASON_PROVIDER). Ключ берётся
-провайдер-специфичный (ANTHROPIC_API_KEY и т.п.), иначе CODER_API_KEY.
+The "smart model thinks / cheap model executes" split: set different providers for
+execution (CODER_PROVIDER) and reasoning (CODER_REASON_PROVIDER). The key is taken
+provider-specific (ANTHROPIC_API_KEY etc.), otherwise CODER_API_KEY.
 
-Auth — ключ конечного пользователя (BYO). OAuth-логин не реализован; см. providers.py.
+Auth — the end user's key (BYO). OAuth login is not implemented; see providers.py.
 """
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ _KEY_ENV = {"anthropic": "ANTHROPIC_API_KEY", "deepseek": "DEEPSEEK_API_KEY",
 
 
 def _key_for(provider: str) -> str | None:
-    """Провайдер-специфичный ключ, иначе общий CODER_API_KEY."""
+    """Provider-specific key, otherwise the shared CODER_API_KEY."""
     return (os.environ.get(_KEY_ENV.get(provider, ""), "")
             or os.environ.get("CODER_API_KEY")
             or None)
@@ -49,7 +49,7 @@ def _main_config() -> dict:
 
 
 def _reason_provider() -> Provider | None:
-    """Опциональный отдельный провайдер для reasoning (режим text)."""
+    """Optional separate provider for reasoning (text mode)."""
     name = os.environ.get("CODER_REASON_PROVIDER")
     if not name:
         return None
@@ -66,9 +66,9 @@ async def repl(workdir: str = ".") -> None:
     mode = "code"  # code | text
     reason, exe = session.reason_provider.name, session.provider.name
     backend = f"reason={reason} / exec={exe}" if reason != exe else f"provider={exe}"
-    print(f"Кодер готов ({backend}, mode={mode}, workdir={workdir}).")
-    print("/text — обсуждение, /code — агентный кодинг, /council <q> — дебат "
-          "двух провайдеров → консенсус, /quit — выход.\n")
+    print(f"Coder ready ({backend}, mode={mode}, workdir={workdir}).")
+    print("/text — discuss, /code — agentic coding, /council <q> — debate "
+          "between two providers → consensus, /quit — exit.\n")
     while True:
         try:
             line = input(f"[{mode}] › ").strip()
@@ -94,12 +94,12 @@ async def repl(workdir: str = ".") -> None:
 
 
 async def run_once(task: str, workdir: str = ".") -> str:
-    """Одна задача в агентном режиме → результат (для делегирования/скриптов)."""
+    """A single task in agentic mode → result (for delegation/scripts)."""
     return await _make_session(workdir).code(task)
 
 
 def main() -> None:
-    # `coder "<task>"` — headless одна задача; без аргумента — интерактивный REPL.
+    # `coder "<task>"` — headless single task; with no argument — interactive REPL.
     if len(sys.argv) > 1:
         print(asyncio.run(run_once(" ".join(sys.argv[1:]))))
     else:

@@ -1,10 +1,10 @@
-"""VSA — компонуемо-эпизодическая память на Vector Symbolic Architecture.
+"""VSA — compositional-episodic memory on a Vector Symbolic Architecture.
 
-Биполярная MAP-модель (bind/bundle/permute), факты как role-binding, эпизоды
-через перестановки, semantic-триггеры. Similarity считается через bit-packed
-popcount (×32 RAM против float, ранкинг идентичен). Главный класс — VSAMemory.
+Bipolar MAP model (bind/bundle/permute): facts as role-binding, episodes via
+permutations, semantic triggers. Similarity is computed with bit-packed popcount
+(×32 RAM vs float, ranking identical). The main class is VSAMemory.
 
-Эмбеддер инъектируется (embed_fn) — пакет не тянет тяжёлых зависимостей.
+The embedder is injectable (embed_fn) — the package pulls in no heavy deps.
 """
 
 from .memory import VSAMemory

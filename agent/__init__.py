@@ -1,6 +1,6 @@
-"""Агентный слой: provider-pluggable LLM-бэкенд + tool-loop кодера.
+"""Agent layer: provider-pluggable LLM backend + the coder tool-loop.
 
-Канонический tool-spec (см. tools.py) транслируется в формат конкретного
-провайдера (Anthropic: input_schema; OpenAI-совместимые: function) внутри
-providers.py — остальной код провайдер-агностичен.
+The canonical tool-spec (see tools.py) is translated into a concrete provider's
+format (Anthropic: input_schema; OpenAI-compatible: function) inside
+providers.py — the rest of the code is provider-agnostic.
 """
