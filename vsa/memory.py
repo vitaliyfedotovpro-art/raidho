@@ -97,6 +97,12 @@ class VSAMemory:
         self._fact_idx: list[tuple[int, int, int]] = []
         self._fact_bits: list[np.ndarray] = []
         self._fact_meta: list[dict] = []
+        # Query-time caches. Facts are append-only (quarantine is meta-only),
+        # so "cache rows != fact count" is a complete invalidation condition —
+        # covers add_triple and load() alike. Rebuilding per call was the old
+        # behaviour and dominates query() cost on large fact banks.
+        self._fact_bank: np.ndarray | None = None    # stacked packed facts
+        self._fact_rows: np.ndarray | None = None    # stacked normalized emb sums
         self._episodes: dict[str, dict] = {}
         self._ep_counter = 0
 
@@ -216,8 +222,10 @@ class VSAMemory:
 
         # Backtracking: check the top-K nearest facts. Similarity — popcount over
         # the packed facts (= (mem @ probe)/D on ±1, ranking identical).
+        if self._fact_bank is None or self._fact_bank.shape[0] != len(self._fact_bits):
+            self._fact_bank = np.stack(self._fact_bits)
         sims_facts = core.hamming_cosine(
-            np.stack(self._fact_bits), core.pack_bipolar(probe), self.D)
+            self._fact_bank, core.pack_bipolar(probe), self.D)
         # Quarantined facts do not take part in structural recall (mask them out).
         for i in range(len(sims_facts)):
             if self._is_quarantined(i):
@@ -279,12 +287,14 @@ class VSAMemory:
         if not active:
             return []
         qe = self._embed(query)
-        rows = np.stack([
-            self._embs[si] + self._embs[ri] + self._embs[oi]
-            for (si, ri, oi) in (self._fact_idx[i] for i in active)
-        ])
-        rows /= np.linalg.norm(rows, axis=1, keepdims=True)
-        sims = rows @ qe
+        if self._fact_rows is None or self._fact_rows.shape[0] != len(self._fact_idx):
+            rows_all = np.stack([
+                self._embs[si] + self._embs[ri] + self._embs[oi]
+                for (si, ri, oi) in self._fact_idx
+            ])
+            rows_all /= np.linalg.norm(rows_all, axis=1, keepdims=True)
+            self._fact_rows = rows_all
+        sims = self._fact_rows[active] @ qe
         order = np.argsort(-sims)[:top_k]
         return [
             {

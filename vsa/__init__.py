@@ -8,5 +8,6 @@ The embedder is injectable (embed_fn) — the package pulls in no heavy deps.
 """
 
 from .memory import VSAMemory
+from .state_memory import StateMemory
 
-__all__ = ["VSAMemory"]
+__all__ = ["VSAMemory", "StateMemory"]
