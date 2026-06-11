@@ -149,6 +149,32 @@ async def path_a(client, meter: Meter) -> str:
     return "".join(b.text for b in resp.content if b.type == "text")
 
 
+# ── Path C: hybrid — deterministic metrics + sources in ONE call ────────────
+# B's waste is not reading code per se — it's the LOOP: context re-paid on
+# every iteration (41k input across 8 calls). The hybrid gives the model the
+# SAME evidence (metrics it must not recount + full sources) in a single call.
+# For larger packages, swap full sources for excerpts (signatures + flagged
+# regions) collected by the same procedure.
+
+async def path_c(client, meter: Meter) -> str:
+    facts = scan_package(PROJECT_ROOT / TARGET)
+    sources = "\n\n".join(
+        f"===== {p.name} =====\n{p.read_text(encoding='utf-8')}"
+        for p in sorted((PROJECT_ROOT / TARGET).glob("*.py")))
+    resp = await client.messages.create(
+        model=MODEL, max_tokens=8000, thinking={"type": "adaptive"},
+        messages=[{"role": "user", "content":
+                   TASK + "\n\nМетрики уже собраны детерминированной процедурой "
+                   "(доверяй им, ничего не пересчитывай):\n```json\n"
+                   + json.dumps(facts, ensure_ascii=False, indent=1)
+                   + "\n```\n\nПолные исходники (для содержательных рекомендаций "
+                   "по существу кода, не только по метрикам):\n\n" + sources}],
+    )
+    meter.add(resp.usage)
+    guard(meter)
+    return "".join(b.text for b in resp.content if b.type == "text")
+
+
 # ── Path B: pure LLM tool-loop with bash ─────────────────────────────────────
 
 BASH_TOOL = {
@@ -194,14 +220,20 @@ async def path_b(client, meter: Meter) -> str:
 
 # ── main ─────────────────────────────────────────────────────────────────────
 
+PATHS = {"a": ("A: Raidho (процедура + 1 вызов)", path_a),
+         "b": ("B: чистый Opus 4.8 (tool-loop)", path_b),
+         "c": ("C: гибрид (метрики + исходники, 1 вызов)", path_c)}
+
+
 async def main() -> None:
     from anthropic import AsyncAnthropic
     client = AsyncAnthropic()  # ключ из ANTHROPIC_API_KEY
 
-    print(f"═══ Та же задача, тот же {MODEL}: Raidho-процедура vs чистый tool-loop ═══\n")
+    selected = sys.argv[1] if len(sys.argv) > 1 else "abc"
+    print(f"═══ Та же задача, тот же {MODEL}: пути [{selected}] ═══\n")
     results = {}
-    for name, fn in (("A: Raidho (процедура + 1 вызов)", path_a),
-                     ("B: чистый Opus 4.8 (tool-loop)", path_b)):
+    for key in selected:
+        name, fn = PATHS[key]
         meter = Meter()
         t0 = time.perf_counter()
         report = await fn(client, meter)
@@ -213,19 +245,13 @@ async def main() -> None:
               f"токены: in={t['in']} out={t['out']} cache_w={t['cw']} cache_r={t['cr']} "
               f"| стоимость: ${meter.cost():.4f}\n")
 
-    a, b = results.values()
-    ratio_cost = b["meter"].cost() / max(a["meter"].cost(), 1e-9)
-    ratio_tok = (b["t"]["in"] + b["t"]["out"]) / max(a["t"]["in"] + a["t"]["out"], 1)
     print("═══ ИТОГ ═══")
-    print(f"  стоимость: B/A = ×{ratio_cost:.1f} | токены: B/A = ×{ratio_tok:.1f} | "
-          f"время: {b['dt']:.0f}s vs {a['dt']:.0f}s")
-    print(f"  суммарно потрачено: ${a['meter'].cost() + b['meter'].cost():.3f}")
+    print(f"  суммарно потрачено: ${sum(r['meter'].cost() for r in results.values()):.3f}")
 
     out = Path("/tmp/raidho_bench_reports.md")
-    out.write_text("# Path A (Raidho)\n\n" + a["report"]
-                   + "\n\n---\n\n# Path B (pure LLM)\n\n" + b["report"],
-                   encoding="utf-8")
-    print(f"  оба отчёта (для оценки качества): {out}")
+    out.write_text("\n\n---\n\n".join(f"# {n}\n\n{r['report']}"
+                                      for n, r in results.items()), encoding="utf-8")
+    print(f"  отчёты (для оценки качества): {out}")
 
 
 if __name__ == "__main__":
