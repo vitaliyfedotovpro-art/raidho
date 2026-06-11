@@ -6,6 +6,8 @@ Config from environment variables:
   CODER_BASE_URL         endpoint for openai-compat
   CODER_REASON_PROVIDER  (opt.) separate provider for reasoning mode (text)
   CODER_REASON_MODEL     (opt.) reasoning provider's model
+  CODER_CONTEXT_FIRST    1 → pack workspace context into the first call
+                         (fewer loop iterations; /ctx toggles it in the REPL)
   ANTHROPIC_API_KEY / DEEPSEEK_API_KEY / OPENAI_API_KEY / CODER_API_KEY
 
 The "smart model thinks / cheap model executes" split: set different providers for
@@ -58,7 +60,8 @@ def _reason_provider() -> Provider | None:
 
 def _make_session(workdir: str) -> Session:
     return Session(get_provider(_main_config()), workdir=workdir,
-                   memory=AgentMemory(), reason_provider=_reason_provider())
+                   memory=AgentMemory(), reason_provider=_reason_provider(),
+                   context_first=os.environ.get("CODER_CONTEXT_FIRST") == "1")
 
 
 async def repl(workdir: str = ".") -> None:
@@ -66,9 +69,10 @@ async def repl(workdir: str = ".") -> None:
     mode = "code"  # code | text
     reason, exe = session.reason_provider.name, session.provider.name
     backend = f"reason={reason} / exec={exe}" if reason != exe else f"provider={exe}"
-    print(f"Coder ready ({backend}, mode={mode}, workdir={workdir}).")
-    print("/text — discuss, /code — agentic coding, /council <q> — debate "
-          "between two providers → consensus, /quit — exit.\n")
+    ctx = " ctx-first" if session.context_first else ""
+    print(f"Coder ready ({backend}, mode={mode}{ctx}, workdir={workdir}).")
+    print("/text — discuss, /code — agentic coding, /ctx — toggle context-first, "
+          "/council <q> — debate between two providers → consensus, /quit — exit.\n")
     while True:
         try:
             line = input(f"[{mode}] › ").strip()
@@ -84,6 +88,10 @@ async def repl(workdir: str = ".") -> None:
             continue
         if line == "/code":
             mode = "code"
+            continue
+        if line == "/ctx":
+            session.context_first = not session.context_first
+            print(f"context-first: {'on' if session.context_first else 'off'}")
             continue
         if line.startswith("/council "):
             res = await session.council(line[len("/council "):].strip())

@@ -9,11 +9,19 @@ new facts (available only when memory is attached).
 The code() method first checks for a matching deterministic procedure in VSA
 memory; if found (score >= PROC_THRESHOLD) it runs the procedure via the
 interpreter instead of the LLM tool-loop, saving tokens and latency.
+
+Context-first mode (measured: evidence/2026-06-11_opus_vs_raidho — closed the
+quality gap of the procedure path at x2.6 less cost than the pure loop): a
+deterministic collector packs the file tree + task-relevant sources into the
+FIRST call, so the model does not spend loop iterations on discovery —
+re-paying the growing context each time. Tools stay available for actions
+(writes, runs) and for files the budget omitted.
 """
 from __future__ import annotations
 
 from pathlib import Path
 
+from .context import collect_context
 from .council import Council
 from .memory import REMEMBER_SPEC, AgentMemory
 from .providers import Provider
@@ -46,12 +54,15 @@ def _print_turn(who: str, text: str) -> None:
 class Session:
     def __init__(self, provider: Provider, workdir: str | Path = ".",
                  system: str = DEFAULT_SYSTEM, memory: AgentMemory | None = None,
-                 reason_provider: Provider | None = None):
+                 reason_provider: Provider | None = None,
+                 context_first: bool = False, context_budget: int = 24_000):
         self.provider = provider                            # execution (code, tool-loop)
         self.reason_provider = reason_provider or provider  # reasoning (chat); same by default
         self.tools = Tools(workdir)
         self.system = system
         self.memory = memory
+        self.context_first = context_first    # pack workspace context into the first call
+        self.context_budget = context_budget  # char budget for the collected block
         self.history: list[dict] = []  # neutral: [{"role","content"}]
 
     def _system_for(self, text: str) -> str:
@@ -93,13 +104,17 @@ class Session:
                          {"role": "assistant", "content": reply}]
         return reply
 
-    async def code(self, task: str) -> str:
+    async def code(self, task: str, context_first: bool | None = None) -> str:
         """Agentic mode: the tool-loop performs the task (recall + remember active).
 
         Before falling into the LLM tool-loop, checks VSA memory for a matching
         deterministic procedure.  If one is found with score >= PROC_THRESHOLD it
         is executed by the procedure interpreter — saving tokens and latency.
-        On any procedure failure the method falls back to the normal LLM path."""
+        On any procedure failure the method falls back to the normal LLM path.
+
+        context_first (per-call override of the session setting): prepend a
+        deterministically collected workspace context to the first call, so
+        discovery does not burn loop iterations."""
         # ── deterministic procedure path ──
         if self.memory:
             hits = self.memory.match_procedure(task)
@@ -134,10 +149,23 @@ class Session:
                         # run_procedure; fall through to normal LLM tool-loop
                         pass
 
+        # ── context-first: hand the workspace to the FIRST call ──
+        prompt = task
+        use_ctx = self.context_first if context_first is None else context_first
+        if use_ctx:
+            block, stats = collect_context(self.tools.workdir, task,
+                                           char_budget=self.context_budget)
+            prompt = task + block
+            print(f"  📦 context-first: {stats['files_included']} files, "
+                  f"{stats['chars']} chars"
+                  + (f" ({stats['files_omitted']} omitted)" if stats['files_omitted'] else ""))
+
         # ── normal LLM tool-loop ──
         reply = await self.provider.agent_turn(
-            self._system_for(task), self.history, task,
+            self._system_for(task), self.history, prompt,
             self._tools_spec(), self._run_tool, on_tool=_print_tool)
+        # history keeps the bare task — the context block is per-call evidence,
+        # not conversation; re-storing it would bloat every later turn
         self.history += [{"role": "user", "content": task},
                          {"role": "assistant", "content": reply}]
         return reply

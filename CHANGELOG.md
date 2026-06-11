@@ -7,6 +7,17 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **Context-first coding mode** (`agent/context.py`, `Session(context_first=True)`,
+  `Session.code(..., context_first=...)`, env `CODER_CONTEXT_FIRST=1`, REPL `/ctx`):
+  a deterministic collector packs the file tree + task-relevant sources (cheap
+  keyword relevance, char budget, binaries/noise pruned) into the FIRST call, so
+  the model does not burn loop iterations on discovery — the growing context is
+  otherwise re-paid every iteration. Tools stay available for actions and for
+  files omitted by budget; the context block is per-call evidence and is not
+  stored in history. Measured motivation and live verification:
+  `evidence/2026-06-11_opus_vs_raidho` (hybrid = quality ≥ pure loop at ×2.6
+  less cost, ×3.1 fewer tokens); live run answered a code question in a single
+  call with zero tool iterations.
 - **Open WebUI integration** (`integrations/openwebui_raidho.py`): a Pipe Function
   exposing Raidho as selectable models — `chat`, `council`, and (opt-in) `code`.
   Providers/keys configured via Valves. The `code` model runs an unsandboxed shell
