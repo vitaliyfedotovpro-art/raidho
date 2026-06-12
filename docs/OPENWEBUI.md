@@ -7,7 +7,23 @@ as selectable models (a *Pipe* Function):
 - **Raidho · council** — two-provider debate → consensus (safe).
 - **Raidho · code ⚠️** — agentic tool loop. **Disabled by default** (see Security).
 
-## Install
+## Install — automatic (recommended)
+
+The guided installer (`bash install.sh`) can do this whole page for you: it
+brings up Open WebUI (Docker image, or `pip install open-webui` as fallback),
+installs Raidho **into the same environment** so the plugin can import it,
+then wires the plugin via the Open WebUI REST API — creates the admin, registers
+the `raidho` function, sets the Valves from your `.env`, enables it, and verifies
+a live answer through the web stack. No manual paste. Idempotent. The wiring is
+done by `scripts/owui_autowire.py` (reusable against any running Open WebUI).
+
+Verified end-to-end live against Open WebUI 0.9.x.
+
+> Key requirement it handles for you: Open WebUI must be able to `import agent`
+> / `import vsa`, i.e. Raidho must live in the **same Python env / container** as
+> Open WebUI — otherwise the function errors with `No module named 'agent'`.
+
+## Install — manual
 
 1. Install Raidho into the environment Open WebUI runs in:
    ```bash

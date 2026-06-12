@@ -177,56 +177,92 @@ if [ -z "$WEBUI" ]; then
   read -r -p "  Set up Open WebUI now? / Поднять Open WebUI? [y/N]: " WEBUI
 fi
 
-webui_done=false
+# autowire args from the chosen provider (keys are still in scope from step 3)
+owui_args() {
+  case "$PROVIDER" in
+    1) printf -- '--provider deepseek --key %s --model deepseek-chat' "$DEEPSEEK_API_KEY" ;;
+    2) printf -- '--provider anthropic --key %s' "$ANTHROPIC_API_KEY" ;;
+    3) printf -- '--provider deepseek --key %s --reason-provider anthropic --reason-key %s' \
+         "$DEEPSEEK_API_KEY" "$ANTHROPIC_API_KEY" ;;
+  esac
+}
+wait_health() {  # $1 = base url
+  info "Waiting for Open WebUI to come up… / Жду старта Open WebUI…"
+  for _ in $(seq 1 60); do
+    [ "$(curl -s -o /dev/null -w '%{http_code}' -m 3 "$1/health" 2>/dev/null)" = "200" ] && return 0
+    sleep 3
+  done
+  return 1
+}
+
+webui_up=false; PORT=""
 case "$WEBUI" in
   y|Y|yes|1)
-    PIPE_SRC="integrations/openwebui_raidho.py"
+    # admin account for the automatic wiring (change it later in the UI)
+    OWUI_EMAIL="${RAIDHO_WEBUI_EMAIL:-admin@raidho.local}"
+    OWUI_PASS="${RAIDHO_WEBUI_PASS:-$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom 2>/dev/null | head -c 16 || echo raidho-$$)}"
+
     if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
       info "Docker found — using the official image (recommended)."
-      if docker ps -a --format '{{.Names}}' | grep -qx raidho-webui; then
-        docker start raidho-webui >/dev/null && ok "Existing Open WebUI container started"
-      else
+      PORT=3000
+      if ! docker ps -a --format '{{.Names}}' | grep -qx raidho-webui; then
         info "Pulling & starting ghcr.io/open-webui/open-webui (first time ~700MB)…"
-        if docker run -d --name raidho-webui -p 3000:8080 \
-             -v raidho-webui-data:/app/backend/data \
-             --add-host=host.docker.internal:host-gateway \
-             ghcr.io/open-webui/open-webui:main >/dev/null 2>&1; then
-          ok "Open WebUI container started"
-        else
-          warn "Docker run failed — see 'docker logs raidho-webui'. Skipping Open WebUI."
-        fi
+        docker run -d --name raidho-webui -p 3000:8080 \
+          -v raidho-webui-data:/app/backend/data \
+          -v "$(pwd):/mnt/raidho:ro" \
+          --add-host=host.docker.internal:host-gateway \
+          ghcr.io/open-webui/open-webui:main >/dev/null 2>&1 \
+          || warn "docker run failed — see 'docker logs raidho-webui'."
+      else
+        docker start raidho-webui >/dev/null 2>&1 || true
       fi
-      docker ps --format '{{.Names}}' | grep -qx raidho-webui && webui_done=true
+      if docker ps --format '{{.Names}}' | grep -qx raidho-webui; then
+        # Raidho MUST be importable by the OWUI process, else the function errors
+        # with "No module named 'agent'". Install it INTO the container.
+        info "Installing Raidho into the container (so OWUI can import it)…"
+        docker exec raidho-webui pip install -q -e '/mnt/raidho[anthropic,openai-compat]' >/dev/null 2>&1 \
+          && docker restart raidho-webui >/dev/null 2>&1 \
+          && ok "Raidho installed in container; restarted" \
+          || warn "in-container install failed — autowire may report a module error"
+        webui_up=true
+      fi
     else
       warn "Docker not available — falling back to 'pip install open-webui'."
       info "(Docker is the cleaner path: https://docs.docker.com/get-docker/ )"
+      PORT=8080
+      # Into THE SAME .venv as Raidho — that is what lets OWUI import agent/vsa.
       if pip -q install open-webui 2>/dev/null; then
-        ok "open-webui installed into .venv"
-        info "Start it later with:  .venv/bin/open-webui serve   (then open :8080)"
-        webui_done=true
-        PIPE_PORT=8080
+        ok "open-webui installed into .venv (same env as Raidho ✓)"
+        if ! curl -s -o /dev/null -m 2 "http://localhost:$PORT/health" 2>/dev/null; then
+          info "Starting Open WebUI in the background (logs: ./.owui.log)…"
+          DATA_DIR="$(pwd)/.owui-data" WEBUI_SECRET_KEY="raidho-$(whoami)" \
+            nohup .venv/bin/open-webui serve --port "$PORT" >./.owui.log 2>&1 &
+        fi
+        webui_up=true
       else
-        warn "pip install open-webui failed (Python/deps). Use Docker instead — "
-        warn "Open WebUI is optional; the CLI works without it."
+        warn "pip install open-webui failed. Open WebUI is optional — the CLI works."
       fi
     fi
 
-    if [ "$webui_done" = true ]; then
-      PORT="${PIPE_PORT:-3000}"
-      cp "$PIPE_SRC" ./raidho_pipe.py 2>/dev/null || true
-      echo ""
-      ok "Open WebUI is up. Final wiring is one paste (it has no stable"
-      info "  function-install CLI, so we keep this step explicit & version-safe):"
-      echo ""
-      echo "    1) Open / Открой:"
-      show_url "Open WebUI" "http://localhost:$PORT"
-      echo "    2) Create the first account (it becomes admin)."
-      echo "    3) Workspace → Functions → +  →  paste the contents of:"
-      echo -e "         ${CYAN}$(pwd)/raidho_pipe.py${NC}    (a copy of $PIPE_SRC)"
-      echo "    4) Open the function's Valves and set provider + key."
-      echo -e "       ${DIM}Your key is in ./.env — copy it into the Valve. Keep"
-      echo -e "       enable_code = OFF (it runs an unsandboxed shell on the host).${NC}"
-      echo ""
+    if [ "$webui_up" = true ] && wait_health "http://localhost:$PORT"; then
+      info "Wiring the Raidho plugin via the Open WebUI API (no manual paste)…"
+      if .venv/bin/python scripts/owui_autowire.py \
+           --base "http://localhost:$PORT" --email "$OWUI_EMAIL" --password "$OWUI_PASS" \
+           $(owui_args); then
+        ok "Raidho is live in Open WebUI — models appear in the selector"
+        echo ""
+        show_url "Open Open WebUI" "http://localhost:$PORT"
+        echo -e "    Admin login / Вход:  ${CYAN}$OWUI_EMAIL${NC}  /  ${CYAN}$OWUI_PASS${NC}"
+        echo -e "    ${DIM}Change the password in the UI. Models: Raidho · chat / · council."
+        echo -e "    The code model stays OFF (unsandboxed shell). См. docs/OPENWEBUI.md.${NC}"
+        echo ""
+      else
+        warn "Auto-wiring failed — Open WebUI is up at http://localhost:$PORT."
+        info "Add the plugin manually: Workspace → Functions → paste"
+        info "  $(pwd)/integrations/openwebui_raidho.py , then set Valves. (docs/OPENWEBUI.md)"
+      fi
+    elif [ "$webui_up" = true ]; then
+      warn "Open WebUI did not become healthy in time — check ./.owui.log or 'docker logs raidho-webui'."
     fi ;;
   *) info "Skipped — see docs/OPENWEBUI.md to add it later, or use any UI you like." ;;
 esac

@@ -182,3 +182,7 @@ agent/**/__pycache__/
 
 # guided-installer artifacts
 raidho_pipe.py
+
+# installer-launched Open WebUI (pip fallback)
+.owui.log
+.owui-data/

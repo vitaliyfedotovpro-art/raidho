@@ -34,6 +34,14 @@ All notable changes to this project are documented here. The format is based on
   Non-interactive via `RAIDHO_PROVIDER`/`RAIDHO_EMBED` envs (CI-able). Concept:
   [MavKa](https://github.com/MozgAI/MavKa) by Oles Lytvyn (MozgAI) — see README
   acknowledgments.
+- **Automatic Open WebUI setup** in the guided installer + `scripts/owui_autowire.py`.
+  The installer brings up Open WebUI (official Docker image, or `pip install
+  open-webui` fallback into the same venv as Raidho), installs Raidho where Open
+  WebUI can import it, then wires the plugin entirely through the Open WebUI REST
+  API — admin signup, function create/update, Valves from `.env`, enable, and a
+  live-answer verification through the web stack. No manual paste; idempotent
+  (re-runs update in place and keep the function enabled). Verified end-to-end
+  live against Open WebUI 0.9.x. The `code` model stays disabled (unsandboxed).
 - **Context-first coding mode** (`agent/context.py`, `Session(context_first=True)`,
   `Session.code(..., context_first=...)`, env `CODER_CONTEXT_FIRST=1`, REPL `/ctx`):
   a deterministic collector packs the file tree + task-relevant sources (cheap
