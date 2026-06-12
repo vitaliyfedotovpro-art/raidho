@@ -44,9 +44,20 @@ provider-agnostic, with your own API key.
 
 ## Install
 
+**Guided (recommended)** — one interactive script that explains every step,
+verifies your API key live, runs a real smoke test and shows how to use the
+agent (concept: [MavKa](https://github.com/MozgAI/MavKa) by MozgAI):
+
+```bash
+bash install.sh
+```
+
+**Manual:**
+
 ```bash
 pip install -e '.[anthropic]'      # Claude backend (official Anthropic SDK)
 pip install -e '.[openai-compat]'  # DeepSeek / OpenAI-compatible (httpx)
+pip install -e '.[embed]'          # semantic memory (sentence-transformers)
 pip install -e '.[dev]'            # + pytest
 ```
 
@@ -160,3 +171,11 @@ or a commercial license — see [COMMERCIAL.md](COMMERCIAL.md).
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). Issues and pull requests welcome.
+
+## Acknowledgments
+
+- **[Oles Lytvyn (MozgAI)](https://github.com/MozgAI)** — this project's critic
+  throughout its path: his reviews shaped the retry layer, the embedder honesty,
+  the history budget and more. The guided installer (`install.sh`) follows the
+  concept he pioneered in **[MavKa](https://github.com/MozgAI/MavKa)** —
+  an installer that explains everything out of the box ("AI installs itself").

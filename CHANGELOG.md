@@ -25,6 +25,15 @@ All notable changes to this project are documented here. The format is based on
   for contested questions.
 
 ### Added
+- **Guided installer** (`install.sh`): one interactive script that explains every
+  step bilingually (EN/RU), checks the system, creates a venv, walks through
+  provider choice (DeepSeek / Anthropic / reasoning-execution split), shows
+  sign-up URLs (QR if `qrencode` is present), verifies API keys with live calls,
+  writes a `chmod 600` `.env`, runs a real end-to-end smoke question and prints
+  a usage guide. Idempotent — re-running reuses existing keys and converges.
+  Non-interactive via `RAIDHO_PROVIDER`/`RAIDHO_EMBED` envs (CI-able). Concept:
+  [MavKa](https://github.com/MozgAI/MavKa) by Oles Lytvyn (MozgAI) — see README
+  acknowledgments.
 - **Context-first coding mode** (`agent/context.py`, `Session(context_first=True)`,
   `Session.code(..., context_first=...)`, env `CODER_CONTEXT_FIRST=1`, REPL `/ctx`):
   a deterministic collector packs the file tree + task-relevant sources (cheap
