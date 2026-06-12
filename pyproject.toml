@@ -21,7 +21,7 @@ embed = ["sentence-transformers>=2.6"]
 # openai-compatible (DeepSeek etc.) via httpx.
 anthropic = ["anthropic>=0.40"]
 openai-compat = ["httpx>=0.27"]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "httpx>=0.27"]  # httpx: retry tests patch the real module
 
 [project.scripts]
 coder = "agent.cli:main"

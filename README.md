@@ -13,8 +13,12 @@ provider-agnostic, with your own API key.
 ![python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![status](https://img.shields.io/badge/status-alpha-orange)
 
-> **Status: alpha.** Tested end-to-end live against DeepSeek; the Claude path uses
-> the official Anthropic SDK. No published benchmarks yet (see [Roadmap](#roadmap)).
+> **Status: alpha.** Tested end-to-end live against both backends (DeepSeek and
+> Claude through the official Anthropic SDK, including the agentic tool-loop).
+> A reproducible real-API benchmark ships in `benchmarks/real_task_opus.py` with
+> full evidence (`evidence/2026-06-11_opus_vs_raidho/`): same task, same model —
+> deterministic procedure $0.05 / context-first hybrid $0.116 / pure tool-loop
+> $0.301; the hybrid matched the loop's report quality at ×2.6 less cost.
 > APIs may change before 1.0.
 
 ## What makes it different
@@ -138,7 +142,7 @@ See [docs/PROVIDERS.md](docs/PROVIDERS.md) for adding a provider and the auth ho
 
 ## Roadmap
 
-- Reproducible benchmark (success rate vs. single-model baseline) and a workflow demo.
+- Broader benchmark coverage (success rate on a task set vs. single-model baseline; SWE-bench-style eval) — a first real-API cost benchmark with evidence is already in `benchmarks/` + `evidence/`.
 - Optional persistent memory (save/load across runs).
 - Real embedder auto-picked when installed (`pip install 'raidho[embed]'`); without it a hash fallback matches exact keywords only — semantic recall needs the extra.
 
