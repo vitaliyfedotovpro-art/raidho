@@ -45,7 +45,7 @@ echo "   algebraic VSA memory, context-first mode, council debates."
 echo -e "   Один установщик, всё объяснит по ходу. ~5 минут.${NC}"
 
 # ── 1/6 system check ─────────────────────────────────────────────────────────
-step "[1/6] System check / Проверка системы"
+step "[1/7] System check / Проверка системы"
 command -v python3 >/dev/null 2>&1 || fail "python3 not found — install Python 3.11+ first"
 PYV=$(python3 -c 'import sys; print(f"{sys.version_info[0]}.{sys.version_info[1]}")')
 python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3,11) else 1)' \
@@ -54,7 +54,7 @@ ok "Python $PYV"
 command -v git >/dev/null 2>&1 && ok "git" || warn "git not found (optional)"
 
 # ── 2/6 virtualenv + package ─────────────────────────────────────────────────
-step "[2/6] Virtual environment & package / Окружение и пакет"
+step "[2/7] Virtual environment & package / Окружение и пакет"
 info "Everything goes into ./.venv — your system Python stays untouched."
 info "Всё ставится в ./.venv — системный Python не трогаем."
 [ -d .venv ] || python3 -m venv .venv
@@ -64,7 +64,7 @@ pip -q install -e .
 ok "raidho installed into .venv"
 
 # ── 3/6 provider choice ──────────────────────────────────────────────────────
-step "[3/6] AI provider / Провайдер модели"
+step "[3/7] AI provider / Провайдер модели"
 info "Raidho's flagship trick: think on a SMART model, execute on a CHEAP one."
 info "Фишка Raidho: думать умной моделью, исполнять — дешёвой."
 echo ""
@@ -132,7 +132,7 @@ case "$PROVIDER" in
 esac
 
 # ── 4/6 semantic memory (optional) ───────────────────────────────────────────
-step "[4/6] Semantic memory / Семантическая память (optional)"
+step "[4/7] Semantic memory / Семантическая память (optional)"
 info "Without it memory recalls EXACT keywords only. With it — meaning:"
 info "a Russian paraphrase finds an English fact. Costs ~400MB of models."
 info "Без неё память ищет только точные слова; с ней — по смыслу (~400МБ)."
@@ -146,7 +146,7 @@ case "$EMB" in
 esac
 
 # ── 5/6 .env + smoke test ────────────────────────────────────────────────────
-step "[5/6] Config & smoke test / Конфиг и проверка боем"
+step "[5/7] Config & smoke test / Конфиг и проверка боем"
 { echo "# Raidho config (created by install.sh — re-run to change)"
   for l in "${ENV_LINES[@]}"; do echo "$l"; done; } > .env
 chmod 600 .env
@@ -163,8 +163,76 @@ case "$SMOKE" in
   *) warn "Smoke test answered unexpectedly: '$SMOKE' — check the key/balance." ;;
 esac
 
-# ── 6/6 how to use ───────────────────────────────────────────────────────────
-step "[6/6] Done — how to use / Готово — как пользоваться"
+# ── 6/7 Open WebUI (optional) ────────────────────────────────────────────────
+# Raidho ships a PLUGIN for the official Open WebUI (a Pipe Function), not its own
+# UI. This step brings up the real Open WebUI and wires our plugin into it. Skip
+# it freely — the CLI above is fully working, and power users can point any
+# interface (or an existing Open WebUI) at Raidho instead.
+step "[7/7] Open WebUI — web interface / Веб-интерфейс (optional)"
+info "Nice chat UI in the browser (by the Open WebUI team). Raidho plugs into it"
+info "as selectable models. Heavy-ish; skip if you're happy in the terminal."
+info "Удобный веб-чат; Raidho подключается к нему моделями. Можно пропустить."
+WEBUI="${RAIDHO_WEBUI:-}"
+if [ -z "$WEBUI" ]; then
+  read -r -p "  Set up Open WebUI now? / Поднять Open WebUI? [y/N]: " WEBUI
+fi
+
+webui_done=false
+case "$WEBUI" in
+  y|Y|yes|1)
+    PIPE_SRC="integrations/openwebui_raidho.py"
+    if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+      info "Docker found — using the official image (recommended)."
+      if docker ps -a --format '{{.Names}}' | grep -qx raidho-webui; then
+        docker start raidho-webui >/dev/null && ok "Existing Open WebUI container started"
+      else
+        info "Pulling & starting ghcr.io/open-webui/open-webui (first time ~700MB)…"
+        if docker run -d --name raidho-webui -p 3000:8080 \
+             -v raidho-webui-data:/app/backend/data \
+             --add-host=host.docker.internal:host-gateway \
+             ghcr.io/open-webui/open-webui:main >/dev/null 2>&1; then
+          ok "Open WebUI container started"
+        else
+          warn "Docker run failed — see 'docker logs raidho-webui'. Skipping Open WebUI."
+        fi
+      fi
+      docker ps --format '{{.Names}}' | grep -qx raidho-webui && webui_done=true
+    else
+      warn "Docker not available — falling back to 'pip install open-webui'."
+      info "(Docker is the cleaner path: https://docs.docker.com/get-docker/ )"
+      if pip -q install open-webui 2>/dev/null; then
+        ok "open-webui installed into .venv"
+        info "Start it later with:  .venv/bin/open-webui serve   (then open :8080)"
+        webui_done=true
+        PIPE_PORT=8080
+      else
+        warn "pip install open-webui failed (Python/deps). Use Docker instead — "
+        warn "Open WebUI is optional; the CLI works without it."
+      fi
+    fi
+
+    if [ "$webui_done" = true ]; then
+      PORT="${PIPE_PORT:-3000}"
+      cp "$PIPE_SRC" ./raidho_pipe.py 2>/dev/null || true
+      echo ""
+      ok "Open WebUI is up. Final wiring is one paste (it has no stable"
+      info "  function-install CLI, so we keep this step explicit & version-safe):"
+      echo ""
+      echo "    1) Open / Открой:"
+      show_url "Open WebUI" "http://localhost:$PORT"
+      echo "    2) Create the first account (it becomes admin)."
+      echo "    3) Workspace → Functions → +  →  paste the contents of:"
+      echo -e "         ${CYAN}$(pwd)/raidho_pipe.py${NC}    (a copy of $PIPE_SRC)"
+      echo "    4) Open the function's Valves and set provider + key."
+      echo -e "       ${DIM}Your key is in ./.env — copy it into the Valve. Keep"
+      echo -e "       enable_code = OFF (it runs an unsandboxed shell on the host).${NC}"
+      echo ""
+    fi ;;
+  *) info "Skipped — see docs/OPENWEBUI.md to add it later, or use any UI you like." ;;
+esac
+
+# ── 7/7 how to use ───────────────────────────────────────────────────────────
+step "[done] How to use / Как пользоваться"
 cat <<'GUIDE'
 
     Start / Запуск:
@@ -184,6 +252,9 @@ cat <<'GUIDE'
 
     Memory: the agent stores durable facts (remember) and recalls them into
     the prompt. Uninstall = delete this folder; nothing else is touched.
+
+    Web UI / Веб-интерфейс: re-run the installer and say yes at the Open WebUI
+    step, or see docs/OPENWEBUI.md. Docker: `docker start raidho-webui`.
 
 GUIDE
 echo -e "  ${DIM}Installer concept: MavKa by Oles Lytvyn (MozgAI) — github.com/MozgAI/MavKa${NC}"

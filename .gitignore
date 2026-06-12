@@ -179,3 +179,6 @@ data/
 /memory/
 /.venv/
 agent/**/__pycache__/
+
+# guided-installer artifacts
+raidho_pipe.py
