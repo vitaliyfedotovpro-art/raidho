@@ -6,6 +6,24 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Fixed (external-review follow-up, verified subset)
+- **Embedder honesty + auto-pickup.** `AgentMemory` now uses the real
+  sentence-transformers model automatically when the `embed` extra is installed;
+  without it the hash fallback prints a one-line notice that recall matches
+  exact keywords only. Docs updated to state the bag-of-words limit plainly.
+- **Retry/backoff in `OpenAICompatProvider._post`.** Transient errors
+  (429/5xx/network) retried with exponential backoff (Retry-After respected);
+  client errors fail fast; non-JSON bodies and exhausted retries return a
+  graceful `[LLM error: ...]` instead of crashing the session. (The Anthropic
+  provider already had this via the official SDK's built-in retries.)
+- **History budget in `Session`.** Conversation history is trimmed to a char
+  budget (default 120k) by dropping the oldest turn pairs — long sessions no
+  longer march into a context-window error. Durable facts belong in memory.
+- **Council secretary override.** `Session.council(..., secretary=...)`
+  passes through to `Council.consensus`; the default (seat A — a participant)
+  is now documented as a potential bias, with a third provider recommended
+  for contested questions.
+
 ### Added
 - **Context-first coding mode** (`agent/context.py`, `Session(context_first=True)`,
   `Session.code(..., context_first=...)`, env `CODER_CONTEXT_FIRST=1`, REPL `/ctx`):

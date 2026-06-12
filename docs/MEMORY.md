@@ -50,10 +50,15 @@ save-load, storage size, episodes).
 `VSAMemory` takes an injected `embed_fn: str -> np.ndarray`, so the core needs only
 `numpy`. Options:
 
-- **default** — a light deterministic hash embedder (`agent/memory.py:hash_embed`);
-  zero extra dependencies, coarse semantics, fine for wiring and small setups.
-- **better** — install the `embed` extra (`sentence-transformers`) and pass a real
-  encoder as `embed_fn` for higher-quality `search` recall.
+- **auto (agent default)** — `AgentMemory` picks the real sentence-transformers
+  model automatically when the `embed` extra is installed
+  (`pip install 'raidho[embed]'`); semantic recall works out of the box.
+- **fallback** — without the extra, a light deterministic hash embedder
+  (`agent/memory.py:hash_embed`) is used and a one-line notice is printed.
+  Know its limit: it is bag-of-words — recall matches exact keywords only
+  (no synonyms, no paraphrase). Fine for wiring and small setups; do not
+  expect "durable semantic memory" from it.
+- **custom** — pass any encoder as `embed_fn` (it always wins over auto-pickup).
 
 ## Using it directly
 

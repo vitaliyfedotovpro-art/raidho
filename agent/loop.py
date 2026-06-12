@@ -55,7 +55,8 @@ class Session:
     def __init__(self, provider: Provider, workdir: str | Path = ".",
                  system: str = DEFAULT_SYSTEM, memory: AgentMemory | None = None,
                  reason_provider: Provider | None = None,
-                 context_first: bool = False, context_budget: int = 24_000):
+                 context_first: bool = False, context_budget: int = 24_000,
+                 history_budget: int = 120_000):
         self.provider = provider                            # execution (code, tool-loop)
         self.reason_provider = reason_provider or provider  # reasoning (chat); same by default
         self.tools = Tools(workdir)
@@ -63,7 +64,22 @@ class Session:
         self.memory = memory
         self.context_first = context_first    # pack workspace context into the first call
         self.context_budget = context_budget  # char budget for the collected block
+        self.history_budget = history_budget  # char budget; oldest turns dropped beyond it
         self.history: list[dict] = []  # neutral: [{"role","content"}]
+
+    def _trim_history(self) -> None:
+        """Keep history within the char budget by dropping the OLDEST turn pair.
+        Unbounded growth otherwise ends in a context-window error on long
+        sessions; durable facts belong in memory (remember), not in history."""
+        def used() -> int:
+            return sum(len(str(m.get("content", ""))) for m in self.history)
+        trimmed = 0
+        while len(self.history) > 2 and used() > self.history_budget:
+            del self.history[:2]
+            trimmed += 1
+        if trimmed:
+            print(f"  ✂ history: dropped {trimmed} oldest turn(s) (budget "
+                  f"{self.history_budget} chars)")
 
     def _system_for(self, text: str) -> str:
         """Base prompt + recall of memory relevant to the current query."""
@@ -102,6 +118,7 @@ class Session:
         reply = await self.reason_provider.chat(self._system_for(text), self.history, text)
         self.history += [{"role": "user", "content": text},
                          {"role": "assistant", "content": reply}]
+        self._trim_history()
         return reply
 
     async def code(self, task: str, context_first: bool | None = None) -> str:
@@ -143,6 +160,7 @@ class Session:
                         result = await self.run_procedure(pid, _exec)
                         self.history += [{"role": "user", "content": task},
                                          {"role": "assistant", "content": result}]
+                        self._trim_history()
                         return result
                     except (ProcedureError, Exception):
                         # procedure crashed — outcome already recorded by
@@ -168,11 +186,18 @@ class Session:
         # not conversation; re-storing it would bloat every later turn
         self.history += [{"role": "user", "content": task},
                          {"role": "assistant", "content": reply}]
+        self._trim_history()
         return reply
 
-    async def council(self, question: str, rounds: int = 2) -> dict:
+    async def council(self, question: str, rounds: int = 2,
+                      secretary: Provider | None = None) -> dict:
         """Two-provider debate → consensus. Seat A = reason_provider, seat B = the
         execution provider — set them differently (e.g. via reason_provider) for a
-        Claude-vs-DeepSeek debate. Returns {'transcript', 'verdict'}."""
+        Claude-vs-DeepSeek debate. Returns {'transcript', 'verdict'}.
+
+        secretary: who distills the verdict. Default is seat A — note this is a
+        participant, i.e. a potential bias; pass a third provider for a truly
+        neutral verdict on contested questions."""
         c = Council(self.reason_provider, self.provider)
-        return await c.consensus(question, rounds=rounds, on_turn=_print_turn)
+        return await c.consensus(question, rounds=rounds, on_turn=_print_turn,
+                                 secretary=secretary)

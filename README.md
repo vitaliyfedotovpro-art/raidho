@@ -140,7 +140,7 @@ See [docs/PROVIDERS.md](docs/PROVIDERS.md) for adding a provider and the auth ho
 
 - Reproducible benchmark (success rate vs. single-model baseline) and a workflow demo.
 - Optional persistent memory (save/load across runs).
-- Pluggable real embedder out of the box (the default is a light hash embedder).
+- Real embedder auto-picked when installed (`pip install 'raidho[embed]'`); without it a hash fallback matches exact keywords only — semantic recall needs the extra.
 
 ## Security
 

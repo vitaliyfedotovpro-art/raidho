@@ -48,12 +48,30 @@ REMEMBER_SPEC = {
 }
 
 
+def _semantic_embedder_available() -> bool:
+    """True when sentence-transformers is importable (the `embed` extra)."""
+    import importlib.util
+    return importlib.util.find_spec("sentence_transformers") is not None
+
+
 class AgentMemory:
-    """Wrapper over VSAMemory: remember (store a fact) + recall (search into the prompt)."""
+    """Wrapper over VSAMemory: remember (store a fact) + recall (search into the prompt).
+
+    Embedder resolution (most semantic wins): an explicitly injected embed_fn;
+    otherwise the real sentence-transformers model IF the `embed` extra is
+    installed (VSAMemory lazy-loads it); otherwise the hash embedder — recall
+    then matches on exact keywords only, and a one-line notice says so."""
 
     def __init__(self, mem: VSAMemory | None = None, embed_fn=None, D: int = 10_000):
-        self.embed_fn = embed_fn or (lambda t: hash_embed(t))
-        self.mem = mem or VSAMemory(D=D, seed=0, embed_fn=self.embed_fn)
+        if mem is None and embed_fn is None:
+            if _semantic_embedder_available():
+                embed_fn = None        # VSAMemory's default lazy-loads the real model
+            else:
+                embed_fn = hash_embed
+                print("  ⓘ memory: hash embedder — recall matches exact keywords "
+                      "only. For semantic recall: pip install 'raidho[embed]'")
+        self.embed_fn = embed_fn
+        self.mem = mem or VSAMemory(D=D, seed=0, embed_fn=embed_fn)
 
     def remember(self, subject: str, relation: str, obj: str) -> str:
         self.mem.add_triple(subject, relation, obj)

@@ -115,13 +115,46 @@ class OpenAICompatProvider(Provider):
             "name": t["name"], "description": t["description"],
             "parameters": t["parameters"]}} for t in tools_spec]
 
+    # transient: rate limit / server-side; everything else fails fast
+    _RETRY_STATUS = {429, 500, 502, 503, 529}
+    _RETRIES = 3            # attempts after the first try
+    _BACKOFF_BASE = 1.5     # seconds; doubled per attempt (tests set it to 0)
+
     async def _post(self, payload: dict) -> dict:
+        """POST with status check + exponential backoff on transient errors.
+        Never raises: exhausted retries / non-JSON bodies come back as
+        {"error": ...} — the callers already render that as [LLM error: ...].
+        (The Anthropic provider gets the equivalent from the official SDK,
+        which auto-retries 429/5xx itself.)"""
+        import asyncio
         import httpx  # lazy import
+        last: dict = {"error": "no attempts made"}
         async with httpx.AsyncClient(timeout=120) as c:
-            r = await c.post(self.base_url,
-                             headers={"Authorization": f"Bearer {_resolve_key(self._key)}"},
-                             json=payload)
-        return r.json()
+            for attempt in range(1 + self._RETRIES):
+                retry_after = None
+                try:
+                    r = await c.post(
+                        self.base_url,
+                        headers={"Authorization": f"Bearer {_resolve_key(self._key)}"},
+                        json=payload)
+                except httpx.HTTPError as e:        # network/timeout — transient
+                    last = {"error": f"{type(e).__name__}: {e}"}
+                else:
+                    if r.status_code not in self._RETRY_STATUS:
+                        try:
+                            return r.json()
+                        except ValueError:
+                            return {"error": f"HTTP {r.status_code}: non-JSON body "
+                                             f"{r.text[:200]!r}"}
+                    last = {"error": f"HTTP {r.status_code}: {r.text[:200]}"}
+                    retry_after = r.headers.get("retry-after")
+                if attempt < self._RETRIES:
+                    try:
+                        delay = float(retry_after)
+                    except (TypeError, ValueError):
+                        delay = self._BACKOFF_BASE * (2 ** attempt)
+                    await asyncio.sleep(min(delay, 30))
+        return last
 
     async def chat(self, system: str, history: list, user_text: str) -> str:
         msgs = [{"role": "system", "content": system}] + list(history) + \
