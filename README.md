@@ -4,7 +4,7 @@
 
 Most coding agents are one model in a tool loop. Raidho splits the work: use a
 **smart, expensive model to reason and plan**, a **cheap, fast model to execute**,
-and a **durable memory** that carries facts across the whole session — all
+and a **durable memory** that carries facts across runs — all
 provider-agnostic, with your own API key.
 
 > The name is the rune *Raidho* (ᚱ) — "journey / movement".
@@ -30,12 +30,16 @@ provider-agnostic, with your own API key.
 - **Council mode.** Have two providers *debate* a question and a neutral pass distill
   the consensus (points of agreement, residual disagreements, recommendation) — e.g.
   Claude vs DeepSeek. Depersonalized and provider-pluggable; no built-in personas.
-- **Durable, structural memory.** The agent remembers `(subject, relation, object)`
-  facts and recalls the relevant ones into its prompt each turn — and can save new
-  ones itself via a `remember` tool. It's a Vector Symbolic Architecture (VSA), not
-  RAG: facts are composed algebraically, similarity is bit-packed (32× less RAM than
-  float, identical ranking). You don't need to know any of that to use it — see
-  [docs/MEMORY.md](docs/MEMORY.md) if you want to.
+- **Durable, structural memory — persists across runs.** The agent remembers
+  `(subject, relation, object)` facts and recalls the relevant ones into its prompt
+  each turn; it saves new ones itself via a `remember` tool, and **council verdicts
+  are distilled into facts automatically**. Memory is written to disk per project
+  (`<workdir>/.raidho/memory`) and reloaded next run — so a decision reached today
+  resurfaces tomorrow, recalled only when relevant (cheap; no history bloat) and
+  across languages (a Russian query finds an English fact). It's a Vector Symbolic
+  Architecture (VSA), not RAG: facts are composed algebraically, similarity is
+  bit-packed (32× less RAM than float, identical ranking). You don't need to know
+  any of that to use it — see [docs/MEMORY.md](docs/MEMORY.md) if you want to.
 - **Tiny and hackable.** The memory core depends only on `numpy`; the whole agent is
   a handful of files. Swap providers, tools, or the embedder without fighting a
   framework.
@@ -95,8 +99,10 @@ coder                 # interactive REPL (default mode: code)
 coder "<task>"        # headless: run one task, print result, exit
 ```
 
-In the REPL: `/code` agentic coding, `/text` reasoning chat, `/council <question>`
-two-provider debate → consensus, `/quit` to exit.
+In the REPL: `/code` agentic coding, `/text` reasoning chat, `/ctx` toggle
+context-first, `/council <question>` two-provider debate → consensus, `/quit` to
+exit. Memory persists per project at `<workdir>/.raidho/memory` — the REPL shows
+how many facts it loaded on start.
 
 ### Library
 
@@ -110,10 +116,13 @@ reason = get_provider({"provider": "anthropic", "api_key": "sk-ant-..."})       
 execute = get_provider({"provider": "deepseek",  "api_key": "sk-...",            # cheap
                         "model": "deepseek-chat"})
 
-session = Session(execute, workdir=".", memory=AgentMemory(), reason_provider=reason)
+# path=... makes memory persist across runs (omit it for an in-RAM, ephemeral memory)
+memory = AgentMemory(path=".raidho/memory")
+session = Session(execute, workdir=".", memory=memory, reason_provider=reason)
 
 asyncio.run(session.chat("plan how to add auth to this app"))   # → reason provider
 asyncio.run(session.code("implement the plan and add a test"))  # → execution provider
+# facts the agent stored are now on disk; a new Session(path=...) reloads them
 ```
 
 Omit `reason_provider` and both modes use the single provider.
@@ -127,6 +136,10 @@ council = Council(reason, execute, name_a="claude", name_b="deepseek")
 result = await council.consensus("pin exact deps or use ranges?", rounds=2)
 print(result["verdict"])      # points of agreement / residual disagreements / recommendation
 # result["transcript"] holds the full exchange
+
+# Via a Session with memory, the verdict is auto-distilled into facts and stored:
+res = await session.council("pin exact deps or use ranges?")
+print(res["remembered"])      # e.g. [("dependencies", "pinned", "exact")] — recalled later
 ```
 
 Or `Session(...).council("...")`, which seats `reason_provider` vs `provider`.
@@ -140,6 +153,8 @@ Or `Session(...).council("...")`, which seats `reason_provider` vs `provider`.
 | `CODER_REASON_PROVIDER` | optional separate provider for `text`/reasoning | = `CODER_PROVIDER` |
 | `CODER_REASON_MODEL` | reasoning model | provider default |
 | `CODER_BASE_URL` | endpoint URL for `openai-compat` | — |
+| `CODER_CONTEXT_FIRST` | `1` packs the workspace into the first call (fewer tool iterations) | off |
+| `CODER_MEMORY` | memory file path; `off` disables persistence | `<workdir>/.raidho/memory` |
 | `ANTHROPIC_API_KEY` / `DEEPSEEK_API_KEY` / `OPENAI_API_KEY` / `CODER_API_KEY` | API keys (provider-specific first, then `CODER_API_KEY`) | — |
 
 See [docs/PROVIDERS.md](docs/PROVIDERS.md) for adding a provider and the auth hook.
@@ -154,8 +169,10 @@ See [docs/PROVIDERS.md](docs/PROVIDERS.md) for adding a provider and the auth ho
 ## Roadmap
 
 - Broader benchmark coverage (success rate on a task set vs. single-model baseline; SWE-bench-style eval) — a first real-API cost benchmark with evidence is already in `benchmarks/` + `evidence/`.
-- Optional persistent memory (save/load across runs).
-- Real embedder auto-picked when installed (`pip install 'raidho[embed]'`); without it a hash fallback matches exact keywords only — semantic recall needs the extra.
+- Streaming responses in the Open WebUI plugin (currently the reply lands at once).
+
+Recently shipped: persistent memory across runs · council verdicts saved as facts ·
+context-first mode · auto-picked semantic embedder · automatic Open WebUI setup.
 
 ## Security
 
