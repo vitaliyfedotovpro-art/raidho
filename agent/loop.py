@@ -23,6 +23,7 @@ import json
 import re
 from pathlib import Path
 
+from . import distill
 from .context import collect_context
 from .council import Council
 from .memory import REMEMBER_SPEC, AgentMemory
@@ -58,7 +59,7 @@ class Session:
                  system: str = DEFAULT_SYSTEM, memory: AgentMemory | None = None,
                  reason_provider: Provider | None = None,
                  context_first: bool = False, context_budget: int = 24_000,
-                 history_budget: int = 120_000):
+                 history_budget: int = 120_000, autodistill: bool = False):
         self.provider = provider                            # execution (code, tool-loop)
         self.reason_provider = reason_provider or provider  # reasoning (chat); same by default
         self.tools = Tools(workdir)
@@ -67,6 +68,7 @@ class Session:
         self.context_first = context_first    # pack workspace context into the first call
         self.context_budget = context_budget  # char budget for the collected block
         self.history_budget = history_budget  # char budget; oldest turns dropped beyond it
+        self.autodistill = autodistill        # learn read-only procedures from successful loops
         self.history: list[dict] = []  # neutral: [{"role","content"}]
 
     def _save_memory(self) -> None:
@@ -159,7 +161,10 @@ class Session:
                     async def _exec():
                         res = await interp.arun(
                             proc, registers={"task": task, "context": task})
-                        return str(res.get("registers", res))
+                        regs = res.get("registers", {})
+                        # distilled procedures put the answer in 'result';
+                        # otherwise fall back to the whole register dump
+                        return str(regs.get("result", regs or res))
 
                     print(f"  ⚡ procedure {pid} (deterministic)")
 
@@ -186,17 +191,48 @@ class Session:
                   f"{stats['chars']} chars"
                   + (f" ({stats['files_omitted']} omitted)" if stats['files_omitted'] else ""))
 
-        # ── normal LLM tool-loop ──
+        # ── normal LLM tool-loop ── (capture the tool trajectory for distillation)
+        trajectory: list = []
+        def _capture(name, args):
+            trajectory.append((name, dict(args)))
+            _print_tool(name, args)
+
         reply = await self.provider.agent_turn(
             self._system_for(task), self.history, prompt,
-            self._tools_spec(), self._run_tool, on_tool=_print_tool)
+            self._tools_spec(), self._run_tool, on_tool=_capture)
         # history keeps the bare task — the context block is per-call evidence,
         # not conversation; re-storing it would bloat every later turn
         self.history += [{"role": "user", "content": task},
                          {"role": "assistant", "content": reply}]
         self._trim_history()
+        # learn a read-only procedure from this successful run (opt-in, gated)
+        if self.autodistill and self.memory and not reply.startswith("(agent iteration"):
+            await self._maybe_distill(task, trajectory)
         self._save_memory()
         return reply
+
+    async def _maybe_distill(self, task: str, trajectory: list) -> None:
+        """Turn a successful read-only tool-loop into a deterministic procedure
+        (+ one generative synth step). Heavily gated; best-effort and silent on
+        any rejection. See agent/distill.py for the safety rationale."""
+        ok, reason, commands = distill.distillable(trajectory)
+        if not ok:
+            return
+        async def _llm(system, history, text):
+            return await self.provider.chat(system, [], text)
+        safe, why = await distill.verify_safe(_llm, task, commands)
+        if not safe:
+            print(f"  🛈 not distilled (safety gate: {why[:60]})")
+            return
+        pid = distill.proc_id_for(task)
+        if self.memory.mem.get_procedure(pid) is not None:
+            return  # already learned
+        body = distill.build_body(task, commands)
+        self.memory.mem.add_procedure(
+            pid, {"type": "semantic", "examples": [task]}, body,
+            meta={"distilled": True, "source_task": task})
+        print(f"  🎓 learned procedure '{pid}' ({len(commands)} read steps) — "
+              f"next time runs deterministically")
 
     async def council(self, question: str, rounds: int = 2,
                       secretary: Provider | None = None, remember: bool = True) -> dict:

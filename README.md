@@ -40,6 +40,7 @@ provider-agnostic, with your own API key.
   Architecture (VSA), not RAG: facts are composed algebraically, similarity is
   bit-packed (32× less RAM than float, identical ranking). You don't need to know
   any of that to use it — see [docs/MEMORY.md](docs/MEMORY.md) if you want to.
+- **Gets cheaper with repetition (opt-in).** Turn on auto-distillation and a successful read-only tool-loop is captured as a deterministic procedure: the next time a similar task runs, the multi-iteration LLM loop is replaced by deterministic data-collection + one synthesis call — far fewer tokens. Heavily gated for safety (read-only commands only, a safety-verify pass, neutral fitness that sinks a procedure if it ever misbehaves); writes always stay on the LLM path. Verified live: run 1 learns, run 2 replays deterministically.
 - **Tiny and hackable.** The memory core depends only on `numpy`; the whole agent is
   a handful of files. Swap providers, tools, or the embedder without fighting a
   framework.
@@ -100,7 +101,7 @@ coder "<task>"        # headless: run one task, print result, exit
 ```
 
 In the REPL: `/code` agentic coding, `/text` reasoning chat, `/ctx` toggle
-context-first, `/council <question>` two-provider debate → consensus, `/quit` to
+context-first, `/learn` toggle auto-distill, `/council <question>` two-provider debate → consensus, `/quit` to
 exit. Memory persists per project at `<workdir>/.raidho/memory` — the REPL shows
 how many facts it loaded on start.
 
@@ -154,6 +155,7 @@ Or `Session(...).council("...")`, which seats `reason_provider` vs `provider`.
 | `CODER_REASON_MODEL` | reasoning model | provider default |
 | `CODER_BASE_URL` | endpoint URL for `openai-compat` | — |
 | `CODER_CONTEXT_FIRST` | `1` packs the workspace into the first call (fewer tool iterations) | off |
+| `CODER_AUTODISTILL` | `1` learns read-only procedures from successful runs (gets cheaper with repetition) | off |
 | `CODER_MEMORY` | memory file path; `off` disables persistence | `<workdir>/.raidho/memory` |
 | `ANTHROPIC_API_KEY` / `DEEPSEEK_API_KEY` / `OPENAI_API_KEY` / `CODER_API_KEY` | API keys (provider-specific first, then `CODER_API_KEY`) | — |
 

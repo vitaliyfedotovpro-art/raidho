@@ -73,7 +73,8 @@ def _make_session(workdir: str) -> Session:
     return Session(get_provider(_main_config()), workdir=workdir,
                    memory=AgentMemory(path=_memory_path(workdir)),
                    reason_provider=_reason_provider(),
-                   context_first=os.environ.get("CODER_CONTEXT_FIRST") == "1")
+                   context_first=os.environ.get("CODER_CONTEXT_FIRST") == "1",
+                   autodistill=os.environ.get("CODER_AUTODISTILL") == "1")
 
 
 async def repl(workdir: str = ".") -> None:
@@ -87,7 +88,8 @@ async def repl(workdir: str = ".") -> None:
         mem = f", memory={session.memory.mem.n_facts} facts"
     print(f"Coder ready ({backend}, mode={mode}{ctx}{mem}, workdir={workdir}).")
     print("/text — discuss, /code — agentic coding, /ctx — toggle context-first, "
-          "/council <q> — debate between two providers → consensus, /quit — exit.\n")
+          "/learn — toggle auto-distill, /council <q> — debate → consensus, "
+          "/quit — exit.\n")
     while True:
         try:
             line = input(f"[{mode}] › ").strip()
@@ -109,6 +111,11 @@ async def repl(workdir: str = ".") -> None:
         if line == "/ctx":
             session.context_first = not session.context_first
             print(f"context-first: {'on' if session.context_first else 'off'}")
+            continue
+        if line == "/learn":
+            session.autodistill = not session.autodistill
+            print(f"auto-distill procedures: {'on' if session.autodistill else 'off'} "
+                  "(learns read-only procedures from successful runs)")
             continue
         if line.startswith("/council "):
             res = await session.council(line[len("/council "):].strip())
