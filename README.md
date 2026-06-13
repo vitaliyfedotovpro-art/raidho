@@ -174,6 +174,10 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Issues and pull requests welcome.
 
 ## Acknowledgments
 
+- **[Open WebUI](https://github.com/open-webui/open-webui)** — the web interface
+  Raidho plugs into. It's an excellent, polished chat UI and a perfect fit for
+  this agent; rather than reinvent it, Raidho ships a Pipe plugin and the
+  installer can wire itself in automatically. Thanks to the Open WebUI team.
 - **[Oles Lytvyn (MozgAI)](https://github.com/MozgAI)** — this project's critic
   throughout its path: his reviews shaped the retry layer, the embedder honesty,
   the history budget and more. The guided installer (`install.sh`) follows the

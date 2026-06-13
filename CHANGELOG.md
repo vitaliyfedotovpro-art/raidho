@@ -25,6 +25,7 @@ All notable changes to this project are documented here. The format is based on
   for contested questions.
 
 ### Added
+- **Trilingual installer + Open WebUI acknowledgment.** `install.sh` now asks the language up front (English / Русский / Українська) and renders every user-facing line accordingly via a `t3` helper; `RAIDHO_LANG` overrides for non-interactive runs. README Acknowledgments credit the Open WebUI team — the web UI Raidho plugs into — as a perfect-fit interface.
 - **Guided installer** (`install.sh`): one interactive script that explains every
   step bilingually (EN/RU), checks the system, creates a venv, walks through
   provider choice (DeepSeek / Anthropic / reasoning-execution split), shows
