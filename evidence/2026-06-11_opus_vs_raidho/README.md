@@ -42,9 +42,8 @@
 Три независимых источника сходятся:
 
 1. **usage-поля API** (суммированы скриптом): $0.0501 + $0.3010 = **$0.351**
-2. **Claude Console, Credit balance**: было $5.00 → стало **$4.65 USD**
-   (дельта $0.35) — скриншот `console_balance_after.png`
-3. **Claude Console, Spend limits**: «**$0.35 spent**» — тот же скриншот
+2. **Claude Console, Credit balance**: было $5.00 → стало **$4.65 USD** (дельта $0.35)
+3. **Claude Console, Spend limits**: «**$0.35 spent**»
 
 ## Честная оговорка по качеству
 
@@ -62,6 +61,3 @@
 - `bench_output_path_c.txt` — вывод прогона гибрида C
 - `reports_both_paths.md` — отчёты A и B целиком
 - `report_path_c.md` — отчёт гибрида C
-- `console_balance_after.png` — скриншот биллинга Claude Console после A+B
-  (баланс $5.00 → $4.65 = измеренные $0.351; публикуется владельцем аккаунта
-  осознанно)
