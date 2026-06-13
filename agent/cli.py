@@ -58,9 +58,21 @@ def _reason_provider() -> Provider | None:
     return get_provider(_config(name.lower(), "CODER_REASON_MODEL"))
 
 
+def _memory_path(workdir: str) -> str | None:
+    """Per-project memory file (facts belong to this codebase). Override with
+    CODER_MEMORY (absolute path), or disable persistence with CODER_MEMORY=off."""
+    override = os.environ.get("CODER_MEMORY")
+    if override == "off":
+        return None
+    if override:
+        return override
+    return os.path.join(os.path.abspath(workdir), ".raidho", "memory")
+
+
 def _make_session(workdir: str) -> Session:
     return Session(get_provider(_main_config()), workdir=workdir,
-                   memory=AgentMemory(), reason_provider=_reason_provider(),
+                   memory=AgentMemory(path=_memory_path(workdir)),
+                   reason_provider=_reason_provider(),
                    context_first=os.environ.get("CODER_CONTEXT_FIRST") == "1")
 
 
@@ -70,7 +82,10 @@ async def repl(workdir: str = ".") -> None:
     reason, exe = session.reason_provider.name, session.provider.name
     backend = f"reason={reason} / exec={exe}" if reason != exe else f"provider={exe}"
     ctx = " ctx-first" if session.context_first else ""
-    print(f"Coder ready ({backend}, mode={mode}{ctx}, workdir={workdir}).")
+    mem = ""
+    if session.memory and session.memory.path:
+        mem = f", memory={session.memory.mem.n_facts} facts"
+    print(f"Coder ready ({backend}, mode={mode}{ctx}{mem}, workdir={workdir}).")
     print("/text — discuss, /code — agentic coding, /ctx — toggle context-first, "
           "/council <q> — debate between two providers → consensus, /quit — exit.\n")
     while True:
@@ -78,10 +93,12 @@ async def repl(workdir: str = ".") -> None:
             line = input(f"[{mode}] › ").strip()
         except (EOFError, KeyboardInterrupt):
             print()
+            session._save_memory()
             break
         if not line:
             continue
         if line == "/quit":
+            session._save_memory()
             break
         if line == "/text":
             mode = "text"

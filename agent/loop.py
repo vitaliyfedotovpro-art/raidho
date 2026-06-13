@@ -69,6 +69,11 @@ class Session:
         self.history_budget = history_budget  # char budget; oldest turns dropped beyond it
         self.history: list[dict] = []  # neutral: [{"role","content"}]
 
+    def _save_memory(self) -> None:
+        """Persist memory after a turn (no-op unless a path is configured)."""
+        if self.memory:
+            self.memory.save()
+
     def _trim_history(self) -> None:
         """Keep history within the char budget by dropping the OLDEST turn pair.
         Unbounded growth otherwise ends in a context-window error on long
@@ -163,6 +168,7 @@ class Session:
                         self.history += [{"role": "user", "content": task},
                                          {"role": "assistant", "content": result}]
                         self._trim_history()
+                        self._save_memory()
                         return result
                     except (ProcedureError, Exception):
                         # procedure crashed — outcome already recorded by
@@ -189,6 +195,7 @@ class Session:
         self.history += [{"role": "user", "content": task},
                          {"role": "assistant", "content": reply}]
         self._trim_history()
+        self._save_memory()
         return reply
 
     async def council(self, question: str, rounds: int = 2,
@@ -212,6 +219,8 @@ class Session:
         res["remembered"] = []
         if remember and self.memory:
             res["remembered"] = await self._remember_verdict(question, res["verdict"])
+            if res["remembered"]:
+                self._save_memory()
         return res
 
     async def _remember_verdict(self, question: str, verdict: str) -> list:

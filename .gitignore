@@ -186,3 +186,6 @@ raidho_pipe.py
 # installer-launched Open WebUI (pip fallback)
 .owui.log
 .owui-data/
+
+# per-project agent memory (persisted facts)
+.raidho/

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from pathlib import Path
 
 import numpy as np
 
@@ -62,7 +63,13 @@ class AgentMemory:
     installed (VSAMemory lazy-loads it); otherwise the hash embedder — recall
     then matches on exact keywords only, and a one-line notice says so."""
 
-    def __init__(self, mem: VSAMemory | None = None, embed_fn=None, D: int = 10_000):
+    def __init__(self, mem: VSAMemory | None = None, embed_fn=None, D: int = 10_000,
+                 path: str | None = None):
+        # Persistence: when `path` is set, memory is loaded from disk if present and
+        # save() writes it back — facts survive across runs. Per-project by default
+        # (the CLI points it at <workdir>/.raidho/memory): a coder agent's facts
+        # belong to that codebase.
+        self.path = str(path) if path else None
         if mem is None and embed_fn is None:
             if _semantic_embedder_available():
                 embed_fn = None        # VSAMemory's default lazy-loads the real model
@@ -71,7 +78,25 @@ class AgentMemory:
                 print("  ⓘ memory: hash embedder — recall matches exact keywords "
                       "only. For semantic recall: pip install 'raidho[embed]'")
         self.embed_fn = embed_fn
+        if mem is None and self.path and Path(self.path + ".json").exists():
+            try:
+                mem = VSAMemory.load(self.path, embed_fn=embed_fn)
+                print(f"  ⓘ memory: loaded {mem.n_facts} fact(s) from {self.path}")
+            except Exception as e:  # corrupt/old format — start fresh, keep the agent up
+                print(f"  ⚠ memory: could not load {self.path} ({e}); starting empty")
+                mem = None
         self.mem = mem or VSAMemory(D=D, seed=0, embed_fn=embed_fn)
+
+    def save(self) -> bool:
+        """Persist to self.path (no-op if path unset). Returns True if written."""
+        if not self.path:
+            return False
+        try:
+            self.mem.save(self.path)
+            return True
+        except Exception as e:  # never let a save failure crash a turn
+            print(f"  ⚠ memory: save to {self.path} failed ({e})")
+            return False
 
     def remember(self, subject: str, relation: str, obj: str) -> str:
         self.mem.add_triple(subject, relation, obj)
