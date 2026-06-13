@@ -96,6 +96,9 @@ async def repl(workdir: str = ".") -> None:
         if line.startswith("/council "):
             res = await session.council(line[len("/council "):].strip())
             print(f"\n══ consensus ══\n{res['verdict']}\n")
+            if res.get("remembered"):
+                facts = ", ".join(f"{s}—{r}→{o}" for s, r, o in res["remembered"])
+                print(f"🧠 remembered: {facts}\n")
             continue
         reply = await (session.code(line) if mode == "code" else session.chat(line))
         print(f"\n{reply}\n")

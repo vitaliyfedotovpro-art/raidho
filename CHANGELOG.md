@@ -25,6 +25,7 @@ All notable changes to this project are documented here. The format is based on
   for contested questions.
 
 ### Added
+- **Council decisions persist into memory.** After a `/council` debate, the verdict is distilled into structural triples by one cheap extraction call on the EXECUTION provider and stored in VSA memory (`Session.council(remember=True)` → `Session._remember_verdict`). The consensus then surfaces in later turns via recall — cross-lingual, verified live (a Russian query retrieved an English decision). Cost-safe by design: facts are recalled only when relevant (~0 downstream), instead of dumping the whole verdict into history (which would re-bill every later turn). `Council` itself stays pure; the memory wiring lives in `Session`. Best-effort: a parse/provider hiccup yields no facts and never breaks the council result.
 - **Trilingual installer + Open WebUI acknowledgment.** `install.sh` now asks the language up front (English / Русский / Українська) and renders every user-facing line accordingly via a `t3` helper; `RAIDHO_LANG` overrides for non-interactive runs. README Acknowledgments credit the Open WebUI team — the web UI Raidho plugs into — as a perfect-fit interface.
 - **Guided installer** (`install.sh`): one interactive script that explains every
   step bilingually (EN/RU), checks the system, creates a venv, walks through

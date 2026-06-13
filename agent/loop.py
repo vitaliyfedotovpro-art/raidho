@@ -19,6 +19,8 @@ re-paying the growing context each time. Tools stay available for actions
 """
 from __future__ import annotations
 
+import json
+import re
 from pathlib import Path
 
 from .context import collect_context
@@ -190,14 +192,61 @@ class Session:
         return reply
 
     async def council(self, question: str, rounds: int = 2,
-                      secretary: Provider | None = None) -> dict:
+                      secretary: Provider | None = None, remember: bool = True) -> dict:
         """Two-provider debate → consensus. Seat A = reason_provider, seat B = the
         execution provider — set them differently (e.g. via reason_provider) for a
-        Claude-vs-DeepSeek debate. Returns {'transcript', 'verdict'}.
+        Claude-vs-DeepSeek debate. Returns {'transcript', 'verdict', 'remembered'}.
 
         secretary: who distills the verdict. Default is seat A — note this is a
         participant, i.e. a potential bias; pass a third provider for a truly
-        neutral verdict on contested questions."""
+        neutral verdict on contested questions.
+
+        remember: if a memory is attached, distill the verdict into structural
+        triples (one cheap extraction call on the EXECUTION provider) and store
+        them in VSA memory — so the consensus surfaces in later turns via recall.
+        Facts cost ~0 downstream (recalled only when relevant), unlike dumping
+        the whole verdict into history. 'remembered' = list of stored triples."""
         c = Council(self.reason_provider, self.provider)
-        return await c.consensus(question, rounds=rounds, on_turn=_print_turn,
-                                 secretary=secretary)
+        res = await c.consensus(question, rounds=rounds, on_turn=_print_turn,
+                                secretary=secretary)
+        res["remembered"] = []
+        if remember and self.memory:
+            res["remembered"] = await self._remember_verdict(question, res["verdict"])
+        return res
+
+    async def _remember_verdict(self, question: str, verdict: str) -> list:
+        """One cheap extraction pass: verdict → structural triples → VSA memory.
+        Runs on the execution provider (the cheap seat). Best-effort: any parse
+        or provider hiccup yields [] and never breaks the council result."""
+        prompt = (
+            "From the consensus below, extract the DURABLE decisions as structural "
+            "triples (subject, relation, object) — concrete choices worth recalling "
+            "later (a chosen library, an approach, a constraint). Skip vague talk.\n"
+            "Return ONLY a JSON array, e.g. "
+            '[{"subject":"auth","relation":"uses","object":"PyJWT"}]. '
+            "Empty array if nothing durable.\n\n"
+            f"Topic: {question}\n\nConsensus:\n{verdict}")
+        try:
+            raw = await self.provider.chat(
+                "You extract structured facts. Output JSON only, no prose.", [], prompt)
+        except Exception:
+            return []
+        m = re.search(r"\[.*\]", raw, re.DOTALL)
+        if not m:
+            return []
+        try:
+            items = json.loads(m.group(0))
+        except (ValueError, TypeError):
+            return []
+        stored = []
+        for it in items if isinstance(items, list) else []:
+            if not isinstance(it, dict):
+                continue
+            s, r, o = (str(it.get(k, "")).strip()
+                       for k in ("subject", "relation", "object"))
+            if s and r and o:
+                self.memory.remember(s, r, o)
+                stored.append((s, r, o))
+        if stored:
+            print(f"  🧠 council → memory: {len(stored)} fact(s) stored")
+        return stored
