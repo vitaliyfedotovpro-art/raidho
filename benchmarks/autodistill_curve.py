@@ -66,14 +66,14 @@ def cost(tin, tout):
     return (tin * PRICE_IN + tout * PRICE_OUT) / 1e6
 
 
-async def measure(label, autodistill, key, workdir, task):
+async def measure(label, autodistill, key, workdir, task, context_first=False):
     prov = MeteredDeepSeek(key)
     rows = []
     for i in range(1, N + 1):
         # fresh Session each run (simulates separate invocations); shared memory dir
         s = Session(prov, workdir=workdir,
                     memory=AgentMemory(path=str(Path(workdir) / ".raidho" / "memory")),
-                    autodistill=autodistill)
+                    autodistill=autodistill, context_first=context_first)
         prov.reset()
         t0 = time.perf_counter()
         await s.code(task)
@@ -103,26 +103,35 @@ def _seed_heavy(wd: Path):
     (wd / "__init__.py").write_text("from .core import f0\n")
 
 
-async def run_profile(name, task, seed, key, base):
+async def run_profile(name, task, seed, key, base, with_ctx=False):
     print(f"\n\n████ PROFILE: {name} ████")
-    for d, mode in (("baseline", False), ("distill", True)):
+    dirs = ["baseline", "distill"] + (["ctxfirst"] if with_ctx else [])
+    for d in dirs:
         wd = base / name / d
         wd.mkdir(parents=True)
         seed(wd)
-    _, bt = await measure("baseline (autodistill OFF)", False, key,
+    _, bt = await measure("baseline (plain loop)", False, key,
                           str(base / name / "baseline"), task)
     drows, dt = await measure("distill (autodistill ON)", True, key,
                               str(base / name / "distill"), task)
+    ctx_per = None
+    if with_ctx:
+        crows, ct = await measure("context-first (workspace in 1st call)", False, key,
+                                  str(base / name / "ctxfirst"), task, context_first=True)
+        ctx_per = ct / N
     steady = sum(r[3] for r in drows[1:]) / (N - 1)
     base_per = bt / N
     ratio = base_per / max(steady, 1e-9)
     print(f"\n  ── {name} summary ──")
-    print(f"  baseline / run: ${base_per:.5f}   |   distill run1: ${drows[0][3]:.5f}"
-          f"   |   distill repeat (2..{N}): ${steady:.5f}")
-    print(f"  → ×{ratio:.1f} cheaper per repeat; cumulative {N} runs "
-          f"${bt:.5f}→${dt:.5f} ({(1 - dt / bt) * 100:.0f}% saved)")
-    return {"name": name, "base_per": base_per, "run1": drows[0][3],
-            "steady": steady, "ratio": ratio, "base_total": bt, "dist_total": dt}
+    print(f"  baseline / run: ${base_per:.5f}   |   distill repeat: ${steady:.5f} "
+          f"(×{ratio:.1f})", end="")
+    if ctx_per is not None:
+        print(f"   |   context-first / run: ${ctx_per:.5f} "
+              f"(×{base_per / max(ctx_per, 1e-9):.1f})")
+    else:
+        print()
+    return {"name": name, "base_per": base_per, "steady": steady, "ratio": ratio,
+            "base_total": bt, "dist_total": dt, "ctx_per": ctx_per}
 
 
 async def main():
@@ -134,14 +143,19 @@ async def main():
     with tempfile.TemporaryDirectory() as b:
         base = Path(b)
         light = await run_profile("light (2 reads)", LIGHT_TASK, _seed_light, key, base)
-        heavy = await run_profile("heavy (package audit)", HEAVY_TASK, _seed_heavy, key, base)
+        heavy = await run_profile("heavy (package audit)", HEAVY_TASK, _seed_heavy, key,
+                                  base, with_ctx=True)
 
-    print("\n\n═══ ИТОГ (обе перспективы) ═══")
-    print(f"  {'profile':<22} | {'base/run':>9} | {'repeat':>9} | {'×':>5} | {'5-run saved':>11}")
+    print("\n\n═══ ИТОГ — два рычага против петли ═══")
+    print(f"  {'profile':<22} | {'base/run':>9} | {'distill rpt':>11} | {'ctx-first':>10}")
     for r in (light, heavy):
-        print(f"  {r['name']:<22} | ${r['base_per']:>8.5f} | ${r['steady']:>8.5f} | "
-              f"×{r['ratio']:>4.1f} | {(1 - r['dist_total'] / r['base_total']) * 100:>9.0f}%")
-    print("  Чем тяжелее петля, тем больше АБСОЛЮТНАЯ экономия на повтор.")
+        ctx = f"${r['ctx_per']:.5f}" if r['ctx_per'] is not None else "—"
+        print(f"  {r['name']:<22} | ${r['base_per']:>8.5f} | ${r['steady']:>10.5f} | {ctx:>10}")
+    if heavy['ctx_per']:
+        print(f"\n  heavy: distill ×{heavy['ratio']:.1f} (data-bound, не помогает) | "
+              f"context-first ×{heavy['base_per'] / max(heavy['ctx_per'],1e-9):.1f} "
+              f"(режет переоплату данных по итерациям)")
+    print("  Вывод: итерационный оверхед → distill; данные в петле → context-first.")
 
 
 if __name__ == "__main__":
