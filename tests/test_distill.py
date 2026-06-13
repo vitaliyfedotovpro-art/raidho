@@ -37,6 +37,23 @@ def test_mutating_bash_rejected():
         assert not ok, f"should reject: {bad}"
 
 
+def test_safe_pipeline_accepted():
+    # read-only stages piped together are safe (audit-style commands)
+    for good in ["grep -rn def . | wc -l", "find . -name '*.py' | sort | head",
+                 "cat f.py | grep TODO | wc -l"]:
+        ok, _, _ = distill.distillable([("bash", {"command": "ls"}),
+                                        ("bash", {"command": good})])
+        assert ok, f"should accept read-only pipeline: {good}"
+
+
+def test_pipe_into_unsafe_stage_rejected():
+    for bad in ["grep x . | xargs rm", "cat f | tee out", "ls | python3 -",
+                "find . | sed -i s/a/b/ {}"]:
+        ok, _, _ = distill.distillable([("bash", {"command": "ls"}),
+                                        ("bash", {"command": bad})])
+        assert not ok, f"should reject unsafe pipe stage: {bad}"
+
+
 def test_readonly_git_allowed_mutating_git_rejected():
     ok, _, _ = distill.distillable([("bash", {"command": "git status"}),
                                     ("bash", {"command": "git diff"})])

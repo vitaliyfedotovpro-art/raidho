@@ -30,9 +30,18 @@ from agent.providers import OpenAICompatProvider     # noqa: E402
 
 PRICE_IN, PRICE_OUT = 0.14, 0.28                     # $/1M tokens, deepseek-chat
 N = 5
-TASK = ("List the files in this directory with list_dir, then read sample.py with "
-        "read_file, then say in one line what the file defines. Use ONLY the "
-        "list_dir and read_file tools, not bash.")
+
+LIGHT_TASK = ("List the files in this directory with list_dir, then read sample.py "
+              "with read_file, then say in one line what the file defines. Use ONLY "
+              "the list_dir and read_file tools, not bash.")
+
+# Heavy task: a real package audit — many read-only steps, big context per loop
+# iteration. This is where the loop's repeated-context cost really bites.
+HEAVY_TASK = (
+    "Audit the Python package in this directory. Use ONLY read-only bash "
+    "(grep/wc/cat/find/ls — no writes). For each .py file report line count and "
+    "the number of functions, count TODO/FIXME markers across the package, then "
+    "give 2 short recommendations. Inspect the files before answering.")
 
 
 class MeteredDeepSeek(OpenAICompatProvider):
@@ -57,7 +66,7 @@ def cost(tin, tout):
     return (tin * PRICE_IN + tout * PRICE_OUT) / 1e6
 
 
-async def measure(label, autodistill, key, workdir):
+async def measure(label, autodistill, key, workdir, task):
     prov = MeteredDeepSeek(key)
     rows = []
     for i in range(1, N + 1):
@@ -67,9 +76,8 @@ async def measure(label, autodistill, key, workdir):
                     autodistill=autodistill)
         prov.reset()
         t0 = time.perf_counter()
-        await s.code(TASK)
+        await s.code(task)
         dt = time.perf_counter() - t0
-        deterministic = bool(s.memory.mem.procedures) and i > 1 and autodistill
         rows.append((i, prov.run_in, prov.run_out, cost(prov.run_in, prov.run_out), dt))
     print(f"\n  ── {label} ──")
     print(f"  {'run':>3} | {'in':>6} | {'out':>5} | {'$/run':>8} | {'sec':>5}")
@@ -80,34 +88,60 @@ async def measure(label, autodistill, key, workdir):
     return rows, total
 
 
+def _seed_light(wd: Path):
+    (wd / "sample.py").write_text("def greet(name):\n    return f'hi {name}'\n")
+
+
+def _seed_heavy(wd: Path):
+    # a small multi-file package with varied sizes + TODO/FIXME markers
+    (wd / "core.py").write_text("# TODO: refactor\n" + "".join(
+        f"def f{i}(x):\n    return x + {i}\n" for i in range(12)))
+    (wd / "utils.py").write_text("import os\n# FIXME: handle errors\n" + "".join(
+        f"def util{i}():\n    pass\n" for i in range(7)))
+    (wd / "cli.py").write_text("".join(
+        f"def cmd{i}(args):\n    '''doc'''\n    return {i}\n" for i in range(9)))
+    (wd / "__init__.py").write_text("from .core import f0\n")
+
+
+async def run_profile(name, task, seed, key, base):
+    print(f"\n\n████ PROFILE: {name} ████")
+    for d, mode in (("baseline", False), ("distill", True)):
+        wd = base / name / d
+        wd.mkdir(parents=True)
+        seed(wd)
+    _, bt = await measure("baseline (autodistill OFF)", False, key,
+                          str(base / name / "baseline"), task)
+    drows, dt = await measure("distill (autodistill ON)", True, key,
+                              str(base / name / "distill"), task)
+    steady = sum(r[3] for r in drows[1:]) / (N - 1)
+    base_per = bt / N
+    ratio = base_per / max(steady, 1e-9)
+    print(f"\n  ── {name} summary ──")
+    print(f"  baseline / run: ${base_per:.5f}   |   distill run1: ${drows[0][3]:.5f}"
+          f"   |   distill repeat (2..{N}): ${steady:.5f}")
+    print(f"  → ×{ratio:.1f} cheaper per repeat; cumulative {N} runs "
+          f"${bt:.5f}→${dt:.5f} ({(1 - dt / bt) * 100:.0f}% saved)")
+    return {"name": name, "base_per": base_per, "run1": drows[0][3],
+            "steady": steady, "ratio": ratio, "base_total": bt, "dist_total": dt}
+
+
 async def main():
     key = os.environ.get("DEEPSEEK_API_KEY")
     if not key:
         sys.exit("set DEEPSEEK_API_KEY")
     import tempfile
-    print(f"═══ Spend vs repetition: same read-only task ×{N} (deepseek-chat) ═══")
-    with tempfile.TemporaryDirectory() as base:
-        for d in ("baseline", "distill"):
-            wd = Path(base) / d
-            wd.mkdir()
-            (wd / "sample.py").write_text("def greet(name):\n    return f'hi {name}'\n")
-        _, base_total = await measure("baseline (autodistill OFF)", False, key,
-                                      str(Path(base) / "baseline"))
-        dist_rows, dist_total = await measure("distill (autodistill ON)", True, key,
-                                              str(Path(base) / "distill"))
+    print(f"═══ Spend vs repetition (deepseek-chat, same task ×{N}, two profiles) ═══")
+    with tempfile.TemporaryDirectory() as b:
+        base = Path(b)
+        light = await run_profile("light (2 reads)", LIGHT_TASK, _seed_light, key, base)
+        heavy = await run_profile("heavy (package audit)", HEAVY_TASK, _seed_heavy, key, base)
 
-    print("\n═══ ИТОГ ═══")
-    # steady-state: cost of a repeat run once the procedure is learned (runs 2..N)
-    steady = sum(r[3] for r in dist_rows[1:]) / (N - 1)
-    base_per = base_total / N
-    print(f"  baseline per run (always full loop): ${base_per:.5f}")
-    print(f"  distill run 1 (learns):              ${dist_rows[0][3]:.5f}")
-    print(f"  distill steady-state (runs 2..{N}):   ${steady:.5f}  "
-          f"→ ×{base_per / max(steady, 1e-9):.1f} cheaper per repeat")
-    print(f"  cumulative {N} runs: baseline ${base_total:.5f} vs distill ${dist_total:.5f} "
-          f"→ {(1 - dist_total / base_total) * 100:.0f}% saved")
-    print(f"  break-even after ~run 2; the more a task repeats, the closer to "
-          f"×{base_per / max(steady, 1e-9):.1f}.")
+    print("\n\n═══ ИТОГ (обе перспективы) ═══")
+    print(f"  {'profile':<22} | {'base/run':>9} | {'repeat':>9} | {'×':>5} | {'5-run saved':>11}")
+    for r in (light, heavy):
+        print(f"  {r['name']:<22} | ${r['base_per']:>8.5f} | ${r['steady']:>8.5f} | "
+              f"×{r['ratio']:>4.1f} | {(1 - r['dist_total'] / r['base_total']) * 100:>9.0f}%")
+    print("  Чем тяжелее петля, тем больше АБСОЛЮТНАЯ экономия на повтор.")
 
 
 if __name__ == "__main__":

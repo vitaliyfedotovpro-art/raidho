@@ -1,12 +1,15 @@
-═══ Spend vs repetition: same read-only task ×5 (deepseek-chat) ═══
+═══ Spend vs repetition (deepseek-chat, same task ×5, two profiles) ═══
+
+
+████ PROFILE: light (2 reads) ████
 
   ── baseline (autodistill OFF) ──
   run |     in |   out |    $/run |   sec
-    1 |   2254 |    88 | $0.00034 |  3.9
-    2 |   2260 |    92 | $0.00034 |  3.7
-    3 |   2260 |    92 | $0.00034 |  3.7
-    4 |   2260 |    92 | $0.00034 |  3.5
-    5 |   2260 |    92 | $0.00034 |  3.6
+    1 |   2254 |    88 | $0.00034 |  4.1
+    2 |   2260 |    92 | $0.00034 |  4.0
+    3 |   2260 |    92 | $0.00034 |  4.0
+    4 |   2260 |    92 | $0.00034 |  3.6
+    5 |   2260 |    92 | $0.00034 |  3.7
   total 5 runs: $0.00171
 
 
@@ -16,16 +19,45 @@
 
   ── distill (autodistill ON) ──
   run |     in |   out |    $/run |   sec
-    1 |   2402 |   140 | $0.00038 | 12.7
-    2 |    225 |    15 | $0.00004 |  4.3
-    3 |    225 |    15 | $0.00004 |  4.6
-    4 |    225 |    15 | $0.00004 |  4.3
-    5 |    225 |    15 | $0.00004 |  4.3
+    1 |   2402 |   140 | $0.00038 | 15.1
+    2 |    228 |    13 | $0.00004 |  4.3
+    3 |    228 |    13 | $0.00004 |  5.7
+    4 |    228 |    13 | $0.00004 |  4.4
+    5 |    228 |    13 | $0.00004 |  4.7
   total 5 runs: $0.00052
 
-═══ ИТОГ ═══
-  baseline per run (always full loop): $0.00034
-  distill run 1 (learns):              $0.00038
-  distill steady-state (runs 2..5):   $0.00004  → ×9.6 cheaper per repeat
-  cumulative 5 runs: baseline $0.00171 vs distill $0.00052 → 70% saved
-  break-even after ~run 2; the more a task repeats, the closer to ×9.6.
+  ── light (2 reads) summary ──
+  baseline / run: $0.00034   |   distill run1: $0.00038   |   distill repeat (2..5): $0.00004
+  → ×9.6 cheaper per repeat; cumulative 5 runs $0.00171→$0.00052 (70% saved)
+
+
+████ PROFILE: heavy (package audit) ████
+
+  ── baseline (autodistill OFF) ──
+  run |     in |   out |    $/run |   sec
+    1 |   4816 |  1050 | $0.00097 | 13.6
+    2 |   4611 |   852 | $0.00088 | 12.1
+    3 |   5542 |   925 | $0.00103 | 13.0
+    4 |   4828 |  1023 | $0.00096 | 13.1
+    5 |   4714 |   930 | $0.00092 | 12.7
+  total 5 runs: $0.00477
+
+  ── distill (autodistill ON) ──
+  run |     in |   out |    $/run |   sec
+    1 |   5743 |   931 | $0.00106 | 13.3
+    2 |   5544 |   892 | $0.00103 | 12.4
+    3 |   5650 |  1017 | $0.00108 | 15.4
+    4 |   4772 |  1032 | $0.00096 | 13.0
+    5 |   5541 |   920 | $0.00103 | 13.1
+  total 5 runs: $0.00516
+
+  ── heavy (package audit) summary ──
+  baseline / run: $0.00095   |   distill run1: $0.00106   |   distill repeat (2..5): $0.00102
+  → ×0.9 cheaper per repeat; cumulative 5 runs $0.00477→$0.00516 (-8% saved)
+
+
+═══ ИТОГ (обе перспективы) ═══
+  profile                |  base/run |    repeat |     × | 5-run saved
+  light (2 reads)        | $ 0.00034 | $ 0.00004 | × 9.6 |        70%
+  heavy (package audit)  | $ 0.00095 | $ 0.00102 | × 0.9 |        -8%
+  Чем тяжелее петля, тем больше АБСОЛЮТНАЯ экономия на повтор.

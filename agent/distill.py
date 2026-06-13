@@ -38,33 +38,76 @@ _SAFE_LEADING = {
     "file", "stat", "cut", "sort", "uniq", "diff", "basename", "dirname", "echo",
     "true", "test", "[",
 }
-# Substrings that, if present anywhere, disqualify a command (mutation/escape).
-_DENY = (
-    ">", "<", "|", ";", "&", "`", "$(", "rm ", "rmdir", "mv ", "cp ", "dd ",
-    "mkfs", "truncate", "shred", "tee", "sudo", "chmod", "chown", "kill",
-    "shutdown", "reboot", "ln ", "touch", "mkdir", "install", "apt", "brew",
-    "pip ", "npm ", "yarn", "git push", "git reset", "git checkout", "git clean",
-    "git commit", "git rm", "sed -i", "curl", "wget", "ssh", "scp", "nc ",
-    "python", "perl", "ruby", "node", "bash", "sh ", "eval", "export", "set ",
-    ":(){",
-)
+# Dangerous chars that disqualify a command when they appear OUTSIDE quotes
+# (redirects/chaining/background/substitution). Quote-aware so a literal pipe or
+# bracket inside a grep regex — e.g. '(TODO|FIXME)' — is not mistaken for shell
+# syntax. Pipe `|` is split on (unquoted) and each stage validated separately.
+_UNQUOTED_DENY = set("><&;`")
+
+
+def _has_unquoted(c: str, chars: set[str]) -> bool:
+    q = None
+    for ch in c:
+        if q:
+            if ch == q:
+                q = None
+        elif ch in ("'", '"'):
+            q = ch
+        elif ch in chars:
+            return True
+    return False
+
+
+def _split_unquoted_pipes(c: str) -> list[str]:
+    segs, cur, q = [], [], None
+    for ch in c:
+        if q:
+            cur.append(ch)
+            if ch == q:
+                q = None
+        elif ch in ("'", '"'):
+            q = ch
+            cur.append(ch)
+        elif ch == "|":
+            segs.append("".join(cur))
+            cur = []
+        else:
+            cur.append(ch)
+    segs.append("".join(cur))
+    return segs
+
+
+def _segment_is_readonly(seg: str) -> bool:
+    """One pipeline stage: leading word allowlisted (read-only)."""
+    seg = seg.strip()
+    if not seg:
+        return False
+    try:
+        parts = shlex.split(seg)
+    except ValueError:
+        return False
+    if not parts:
+        return False
+    lead = parts[0]
+    if lead == "git":      # read-only git subcommands only
+        return (parts[1:2] or [""])[0] in {"status", "log", "diff", "show",
+                                            "ls-files", "blame"}
+    return lead in _SAFE_LEADING
 
 
 def _bash_is_readonly(cmd: str) -> bool:
-    """Conservative: leading word allowlisted AND no mutation/escape token.
-    Dual-use interpreters (python/sed -i/etc.) are excluded — fail closed."""
+    """Read-only iff: no UNQUOTED redirect/chaining/background/substitution, AND
+    every (unquoted-)pipeline stage's leading command is on the allowlist.
+    Dual-use interpreters (python/perl/sed -i/…) are absent from the allowlist
+    → fail closed. Quote-aware so regex pipes/brackets don't trip it."""
     c = cmd.strip()
     if not c:
         return False
-    low = c.lower()
-    if any(tok in low for tok in _DENY):
+    if _has_unquoted(c, _UNQUOTED_DENY):
         return False
-    lead = shlex.split(c)[0] if c else ""
-    # allow `git status|log|diff|show` (read-only git) even though git is special
-    if lead == "git":
-        sub = (shlex.split(c)[1:2] or [""])[0]
-        return sub in {"status", "log", "diff", "show", "ls-files", "blame"}
-    return lead in _SAFE_LEADING
+    if "$(" in c or "${" in c:   # command/var substitution — reject (rare in read cmds)
+        return False
+    return all(_segment_is_readonly(seg) for seg in _split_unquoted_pipes(c))
 
 
 def _call_to_command(name: str, args: dict) -> str | None:
