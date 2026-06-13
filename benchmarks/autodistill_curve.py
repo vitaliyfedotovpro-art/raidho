@@ -105,7 +105,7 @@ def _seed_heavy(wd: Path):
 
 async def run_profile(name, task, seed, key, base, with_ctx=False):
     print(f"\n\n████ PROFILE: {name} ████")
-    dirs = ["baseline", "distill"] + (["ctxfirst"] if with_ctx else [])
+    dirs = ["baseline", "distill"] + (["ctxfirst", "combined"] if with_ctx else [])
     for d in dirs:
         wd = base / name / d
         wd.mkdir(parents=True)
@@ -114,11 +114,14 @@ async def run_profile(name, task, seed, key, base, with_ctx=False):
                           str(base / name / "baseline"), task)
     drows, dt = await measure("distill (autodistill ON)", True, key,
                               str(base / name / "distill"), task)
-    ctx_per = None
+    ctx_per = comb_steady = None
     if with_ctx:
-        crows, ct = await measure("context-first (workspace in 1st call)", False, key,
-                                  str(base / name / "ctxfirst"), task, context_first=True)
+        _, ct = await measure("context-first (workspace in 1st call)", False, key,
+                              str(base / name / "ctxfirst"), task, context_first=True)
         ctx_per = ct / N
+        crows, _ = await measure("combined (context-first + distill)", True, key,
+                                 str(base / name / "combined"), task, context_first=True)
+        comb_steady = sum(r[3] for r in crows[1:]) / (N - 1)
     steady = sum(r[3] for r in drows[1:]) / (N - 1)
     base_per = bt / N
     ratio = base_per / max(steady, 1e-9)
@@ -126,12 +129,14 @@ async def run_profile(name, task, seed, key, base, with_ctx=False):
     print(f"  baseline / run: ${base_per:.5f}   |   distill repeat: ${steady:.5f} "
           f"(×{ratio:.1f})", end="")
     if ctx_per is not None:
-        print(f"   |   context-first / run: ${ctx_per:.5f} "
-              f"(×{base_per / max(ctx_per, 1e-9):.1f})")
+        print(f"   |   context-first: ${ctx_per:.5f} (×{base_per / max(ctx_per, 1e-9):.1f})"
+              f"   |   combined repeat: ${comb_steady:.5f} "
+              f"(×{base_per / max(comb_steady, 1e-9):.1f})")
     else:
         print()
     return {"name": name, "base_per": base_per, "steady": steady, "ratio": ratio,
-            "base_total": bt, "dist_total": dt, "ctx_per": ctx_per}
+            "base_total": bt, "dist_total": dt, "ctx_per": ctx_per,
+            "comb_steady": comb_steady}
 
 
 async def main():
@@ -146,16 +151,20 @@ async def main():
         heavy = await run_profile("heavy (package audit)", HEAVY_TASK, _seed_heavy, key,
                                   base, with_ctx=True)
 
-    print("\n\n═══ ИТОГ — два рычага против петли ═══")
-    print(f"  {'profile':<22} | {'base/run':>9} | {'distill rpt':>11} | {'ctx-first':>10}")
+    print("\n\n═══ ИТОГ — рычаги против петли ═══")
+    print(f"  {'profile':<22} | {'base':>8} | {'distill':>8} | {'ctx-first':>9} | {'combined':>8}")
     for r in (light, heavy):
         ctx = f"${r['ctx_per']:.5f}" if r['ctx_per'] is not None else "—"
-        print(f"  {r['name']:<22} | ${r['base_per']:>8.5f} | ${r['steady']:>10.5f} | {ctx:>10}")
+        comb = f"${r['comb_steady']:.5f}" if r['comb_steady'] is not None else "—"
+        print(f"  {r['name']:<22} | ${r['base_per']:>7.5f} | ${r['steady']:>7.5f} | "
+              f"{ctx:>9} | {comb:>8}")
     if heavy['ctx_per']:
-        print(f"\n  heavy: distill ×{heavy['ratio']:.1f} (data-bound, не помогает) | "
-              f"context-first ×{heavy['base_per'] / max(heavy['ctx_per'],1e-9):.1f} "
-              f"(режет переоплату данных по итерациям)")
-    print("  Вывод: итерационный оверхед → distill; данные в петле → context-first.")
+        bp = heavy['base_per']
+        print(f"\n  heavy ×к baseline: distill ×{bp/max(heavy['steady'],1e-9):.1f} (вариативно) | "
+              f"context-first ×{bp/max(heavy['ctx_per'],1e-9):.1f} (стабильно) | "
+              f"combined ×{bp/max(heavy['comb_steady'],1e-9):.1f}")
+    print("  Итерационный оверхед → distill; данные в петле → context-first; "
+          "combined — складываются ли (см. число).")
 
 
 if __name__ == "__main__":
