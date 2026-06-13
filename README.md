@@ -40,7 +40,7 @@ provider-agnostic, with your own API key.
   Architecture (VSA), not RAG: facts are composed algebraically, similarity is
   bit-packed (32× less RAM than float, identical ranking). You don't need to know
   any of that to use it — see [docs/MEMORY.md](docs/MEMORY.md) if you want to.
-- **Gets cheaper with repetition (opt-in).** Turn on auto-distillation and a successful read-only tool-loop is captured as a deterministic procedure: the next time a similar task runs, the multi-iteration LLM loop is replaced by deterministic data-collection + one synthesis call — far fewer tokens. Heavily gated for safety (read-only commands only, a safety-verify pass, neutral fitness that sinks a procedure if it ever misbehaves); writes always stay on the LLM path. Verified live: run 1 learns, run 2 replays deterministically.
+- **Gets cheaper with repetition (opt-in).** Turn on auto-distillation and a successful read-only tool-loop is captured as a deterministic procedure: the next time a similar task runs, the multi-iteration LLM loop is replaced by deterministic data-collection + one synthesis call — far fewer tokens. Heavily gated for safety (read-only commands only, a safety-verify pass, neutral fitness that sinks a procedure if it ever misbehaves); writes always stay on the LLM path. Measured live (deepseek-chat, same read-only task ×5): run 1 pays a small learning premium, repeats cost ~×10 less — 70% saved over 5 runs (`evidence/2026-06-12_autodistill_curve/`).
 - **Tiny and hackable.** The memory core depends only on `numpy`; the whole agent is
   a handful of files. Swap providers, tools, or the embedder without fighting a
   framework.

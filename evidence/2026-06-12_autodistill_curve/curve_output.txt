@@ -1,0 +1,31 @@
+═══ Spend vs repetition: same read-only task ×5 (deepseek-chat) ═══
+
+  ── baseline (autodistill OFF) ──
+  run |     in |   out |    $/run |   sec
+    1 |   2254 |    88 | $0.00034 |  3.9
+    2 |   2260 |    92 | $0.00034 |  3.7
+    3 |   2260 |    92 | $0.00034 |  3.7
+    4 |   2260 |    92 | $0.00034 |  3.5
+    5 |   2260 |    92 | $0.00034 |  3.6
+  total 5 runs: $0.00171
+
+
+
+
+
+
+  ── distill (autodistill ON) ──
+  run |     in |   out |    $/run |   sec
+    1 |   2402 |   140 | $0.00038 | 12.7
+    2 |    225 |    15 | $0.00004 |  4.3
+    3 |    225 |    15 | $0.00004 |  4.6
+    4 |    225 |    15 | $0.00004 |  4.3
+    5 |    225 |    15 | $0.00004 |  4.3
+  total 5 runs: $0.00052
+
+═══ ИТОГ ═══
+  baseline per run (always full loop): $0.00034
+  distill run 1 (learns):              $0.00038
+  distill steady-state (runs 2..5):   $0.00004  → ×9.6 cheaper per repeat
+  cumulative 5 runs: baseline $0.00171 vs distill $0.00052 → 70% saved
+  break-even after ~run 2; the more a task repeats, the closer to ×9.6.
