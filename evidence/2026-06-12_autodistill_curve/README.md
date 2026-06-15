@@ -1,69 +1,67 @@
-# Доказательство: где расход падает с повторением (авто-дистилляция)
+# Evidence: where spend falls with repetition (auto-distillation)
 
-Реальный замер на живом DeepSeek (`deepseek-chat`), одна и та же задача ×5,
-дважды (без авто-дистилляции и с ней), ДВА профиля нагрузки. Токены — из
-API-поля `usage`. Скрипт: `benchmarks/autodistill_curve.py`. Цены сверены
-2026-06-11 ($0.14/M вход, $0.28/M выход).
+Real-API measurement (live `deepseek-chat`), the same task ×5, twice (autodistill
+off and on), TWO load profiles. Tokens from the API `usage` field. Script:
+`benchmarks/autodistill_curve.py`. Pricing verified 2026-06-11 ($0.14/M in,
+$0.28/M out).
 
-## Результат (итог) — рычаги против петли
+## Result — levers against the loop
 
-| профиль | base | distill | context-first | combined |
+| profile | base | distill | context-first | combined |
 |---|---|---|---|---|
-| light (мало данных) | $0.00034 | **$0.00004 (×9.7)** | — | — |
-| heavy (аудит) | $0.00100 | $0.00046 (×2.2, вариат.) | $0.00059 (×1.7, стаб.) | **$0.00013 (×7.7)** |
+| light (little data) | $0.00034 | **$0.00004 (×9.7)** | — | — |
+| heavy (audit) | $0.00100 | $0.00046 (×2.2, variable) | $0.00059 (×1.7, stable) | **$0.00013 (×7.7)** |
 
-**Рычаги и ниши:**
-- **distill** — итерационный оверхед (много дешёвых шагов над малыми данными):
-  light → ×9.7.
-- **context-first** — данные в петле (аудит/крупные файлы): один вызов со всем
-  workspace вместо ~4 итераций → стабильный ×1.7 на heavy.
-- **combined (оба)** — на heavy дал ЛУЧШИЙ результат **×7.7**. Синергия, не
-  вытеснение: на ОБУЧАЮЩЕМ прогоне context-first отдаёт модели все файлы → она
-  использует компактные команды (`grep -c`, не `cat` всего) → distill фиксирует
-  лёгкую траекторию → повторы = синтез на малых данных (502 vs 5500 токенов).
-  context-first формирует экономную траекторию, distill её увековечивает — и это
-  гасит «лотерею» distill на data-heavy.
+**Levers and their niches:**
+- **distill** — iteration overhead (many cheap steps over little data): light → ×9.7.
+- **context-first** — data carried through the loop (audit / large files): one call
+  with the whole workspace instead of ~4 iterations → stable ×1.7 on heavy.
+- **combined (both)** — best result on heavy, **×7.7**. Synergy, not displacement:
+  on the LEARNING run context-first hands the model all files → it uses compact
+  commands (`grep -c`, not cat-everything) → distill captures the lean trajectory
+  → replays = synthesis over little data (502 vs 5500 tokens). context-first shapes
+  an economical trajectory, distill makes it permanent — which also tames distill's
+  data-heavy "lottery".
 
-⚠️ Один 5-прогонный сэмпл, модель стохастична. Повторы (2–5) стабильны
-(процедура детерминирована); вариативность — в том, ЧТО выучилось на прогоне 1.
-combined её снижает, но не до нуля. distill в одиночку на data-heavy остаётся
-лотереей (×1–×5).
+⚠️ Single 5-run sample; the model is stochastic. Replays (2–5) are stable (the
+procedure is deterministic); the variance is in WHAT gets learned on run 1.
+Combined reduces it but not to zero. distill alone on data-heavy stays a lottery
+(×1–×5).
 
-## Главный вывод — и он опроверг интуицию
+## Main finding — it refuted the intuition
 
-Гипотеза «чем тяжелее задача, тем больше экономия» — **ОПРОВЕРГНУТА замером.**
-Экономия дистилляции растёт **не с тяжестью задачи, а с долей оверхеда итераций
-в общей стоимости:**
+The hypothesis "the heavier the task, the bigger the saving" was **refuted by
+measurement.** Distillation's saving scales **not with task size, but with the
+share of iteration overhead in total cost:**
 
-- **light:** 3 итерации петли (list_dir → read_file → ответ) над почти пустыми
-  данными. Итерации = чистый оверхед (каждая переоплачивает system+tools+history).
-  Процедура убирает их → детерминированный сбор (0 LLM) + крошечный синтез →
-  **×9.6**.
-- **heavy:** стоимость определяется ОБЪЁМОМ ДАННЫХ в контексте. Тут работает
-  **context-first** (данные в один вызов вместо итераций) → стабильный ×1.7.
-  distill помогает лишь если выучил компактную процедуру — вариативно (×1–×5).
+- **light:** 3 loop iterations (list_dir → read_file → answer) over near-empty
+  data. Iterations are pure overhead (each re-pays system+tools+history). The
+  procedure removes them → deterministic collection (0 LLM) + tiny synthesis → **×9.6**.
+- **heavy:** cost is dominated by the DATA in context. Here **context-first** wins
+  (data in one call instead of iterations) → stable ×1.7. distill helps only if it
+  learned a compact procedure — variable (×1–×5).
 
-## Правило (честное)
+## The honest rule
 
-**Дистилляция режет повторную оплату контекста по итерациям, а не объём данных.**
-Выигрыш ≈ (число устранённых итераций × контекст на итерацию) / общая стоимость.
-- Много дешёвых итераций над малыми данными → большой выигрыш (light, ×9.6).
-- Мало итераций, стоимость в данных → выигрыша почти нет (heavy, ~×1): данные —
-  это пол, ниже которого синтез не опустится.
+**Distillation cuts the repeated per-iteration context cost, not the data volume.**
+Saving ≈ (iterations removed × context per iteration) / total cost.
+- Many cheap iterations over small data → big win (light, ×9.6).
+- Few iterations, cost in the data → almost no win (heavy, ~×1): the data is the
+  floor the synthesis can't go below.
 
-Сравни с эксп. 11.06 (Opus, context-first): там петля делала 8 итераций,
-переоплачивая 41k контекста → гибрид дал ×3. Разница с этим аудитом — там петля
-была ДЛИННОЙ и расточительной по итерациям; здесь DeepSeek сделал аудит за ~4
-итерации, резать почти нечего.
+Compare with the 2026-06-11 experiment (Opus, context-first): there the loop ran
+8 iterations re-paying 41k of context → the hybrid gave ×3. The difference from
+this audit: there the loop was LONG and iteration-wasteful; here DeepSeek did the
+audit in ~4 iterations, so there's little to cut.
 
-## Что это значит для пользователя
+## What it means for the user
 
-- Повторяемые многошаговые задачи над малыми данными → **distill** (×9.7).
-- Задачи с данными в петле (аудит, крупные файлы) → **context-first** (стаб. ×1.7).
-- Повторяемые data-heavy задачи → **включить ОБА**: context-first ведёт модель к
-  компактной обучающей траектории, distill её увековечивает → лучший результат
-  (×7.7 в этом замере). Безопасность неизменна (read-only, fitness-откат).
+- Repeated multi-step tasks over small data → **distill** (×9.7).
+- Tasks with data carried through the loop (audits, large files) → **context-first**
+  (stable ×1.7).
+- Repeated data-heavy tasks → **enable BOTH**: context-first steers the model to a
+  compact learning trajectory, distill makes it permanent → best result (×7.7 in
+  this measurement). Safety unchanged (read-only, fitness rollback).
 
-⚠️ Граница безопасности неизменна: дистиллируются только read-only задачи
-(включая read-only пайплайны вроде `grep … | wc`); записи всегда остаются на
-LLM-пути.
+⚠️ Safety boundary unchanged: only read-only tasks are distilled (including
+read-only pipelines like `grep … | wc`); writes always stay on the LLM path.

@@ -45,11 +45,11 @@ MAX_ITERS = 15
 TARGET = "agent"                          # package to audit, relative to repo root
 
 TASK = (
-    f"Проведи аудит Python-пакета `{TARGET}/` (текущая директория — корень проекта). "
-    "Для КАЖДОГО .py файла собери: число строк, число функций, число маркеров "
-    "TODO/FIXME, список функций без docstring. Затем напиши сводный отчёт: "
-    "таблица по файлам, общие итоги, и топ-3 конкретных рекомендации по улучшению "
-    "качества кода. Отчёт — на русском, в markdown."
+    f"Audit the Python package `{TARGET}/` (the current directory is the project root). "
+    "For EACH .py file collect: line count, function count, TODO/FIXME marker count, "
+    "and the list of functions without a docstring. Then write a summary report: "
+    "a per-file table, overall totals, and the top-3 concrete recommendations to "
+    "improve code quality. Report in English, in markdown."
 )
 
 
@@ -76,7 +76,7 @@ class Meter:
 
 def guard(meter: Meter) -> None:
     if meter.cost() > BUDGET_USD:
-        raise RuntimeError(f"бюджетный предохранитель: ${meter.cost():.2f} > ${BUDGET_USD}")
+        raise RuntimeError(f"budget guard tripped: ${meter.cost():.2f} > ${BUDGET_USD}")
 
 
 # ── Path A: deterministic scan (Raidho Interpreter) + one report call ────────
@@ -108,7 +108,7 @@ def scan_package(pkg_dir: Path) -> dict:
 
 
 async def path_a(client, meter: Meter) -> str:
-    # деతерминированная процедура: реальный Interpreter Raidho, 0 LLM-вызовов
+    # deterministic procedure: the real Raidho Interpreter, 0 LLM calls
     facts_holder: dict = {}
 
     async def h_execute(label, args, mode, regs, model=None):
@@ -136,12 +136,12 @@ async def path_a(client, meter: Meter) -> str:
     await interp.arun(procedure)
     facts = facts_holder["facts"]
 
-    # один LLM-вызов: только написать отчёт по готовым данным
+    # one LLM call: only write the report from the ready-made data
     resp = await client.messages.create(
         model=MODEL, max_tokens=8000, thinking={"type": "adaptive"},
         messages=[{"role": "user", "content":
-                   TASK + "\n\nДанные уже собраны детерминированной процедурой "
-                   "(доверяй им, ничего не пересчитывай):\n```json\n"
+                   TASK + "\n\nThe data is already collected by a deterministic procedure "
+                   "(trust it, do not recompute):\n```json\n"
                    + json.dumps(facts, ensure_ascii=False, indent=1) + "\n```"}],
     )
     meter.add(resp.usage)
@@ -164,11 +164,11 @@ async def path_c(client, meter: Meter) -> str:
     resp = await client.messages.create(
         model=MODEL, max_tokens=8000, thinking={"type": "adaptive"},
         messages=[{"role": "user", "content":
-                   TASK + "\n\nМетрики уже собраны детерминированной процедурой "
-                   "(доверяй им, ничего не пересчитывай):\n```json\n"
+                   TASK + "\n\nThe metrics are already collected by a deterministic procedure "
+                   "(trust them, do not recompute):\n```json\n"
                    + json.dumps(facts, ensure_ascii=False, indent=1)
-                   + "\n```\n\nПолные исходники (для содержательных рекомендаций "
-                   "по существу кода, не только по метрикам):\n\n" + sources}],
+                   + "\n```\n\nFull sources (for substantive recommendations about the "
+                   "code itself, not just metrics):\n\n" + sources}],
     )
     meter.add(resp.usage)
     guard(meter)
@@ -179,7 +179,7 @@ async def path_c(client, meter: Meter) -> str:
 
 BASH_TOOL = {
     "name": "bash",
-    "description": "Выполнить bash-команду в корне проекта и вернуть stdout/stderr.",
+    "description": "Run a bash command in the project root and return stdout/stderr.",
     "input_schema": {"type": "object",
                      "properties": {"command": {"type": "string"}},
                      "required": ["command"]},
@@ -190,7 +190,7 @@ def run_bash(cmd: str) -> str:
     try:
         r = subprocess.run(cmd, shell=True, cwd=PROJECT_ROOT, timeout=30,
                            capture_output=True, text=True)
-        out = (r.stdout + r.stderr).strip() or "(пустой вывод)"
+        out = (r.stdout + r.stderr).strip() or "(empty output)"
     except subprocess.TimeoutExpired:
         out = "(timeout 30s)"
     return out[:6000]
@@ -215,22 +215,22 @@ async def path_b(client, meter: Meter) -> str:
                 results.append({"type": "tool_result", "tool_use_id": b.id,
                                 "content": run_bash(b.input.get("command", ""))})
         messages.append({"role": "user", "content": results})
-    return "(достигнут предел итераций)"
+    return "(iteration limit reached)"
 
 
 # ── main ─────────────────────────────────────────────────────────────────────
 
-PATHS = {"a": ("A: Raidho (процедура + 1 вызов)", path_a),
-         "b": ("B: чистый Opus 4.8 (tool-loop)", path_b),
-         "c": ("C: гибрид (метрики + исходники, 1 вызов)", path_c)}
+PATHS = {"a": ("A: Raidho (procedure + 1 call)", path_a),
+         "b": ("B: pure Opus 4.8 (tool-loop)", path_b),
+         "c": ("C: hybrid (metrics + sources, 1 call)", path_c)}
 
 
 async def main() -> None:
     from anthropic import AsyncAnthropic
-    client = AsyncAnthropic()  # ключ из ANTHROPIC_API_KEY
+    client = AsyncAnthropic()  # key from ANTHROPIC_API_KEY
 
     selected = sys.argv[1] if len(sys.argv) > 1 else "abc"
-    print(f"═══ Та же задача, тот же {MODEL}: пути [{selected}] ═══\n")
+    print(f"═══ Same task, same {MODEL}: paths [{selected}] ═══\n")
     results = {}
     for key in selected:
         name, fn = PATHS[key]
@@ -241,17 +241,17 @@ async def main() -> None:
         t = meter.totals()
         results[name] = {"meter": meter, "dt": dt, "report": report, "t": t}
         print(f"\n  ── {name} ──")
-        print(f"  LLM-вызовов: {len(meter.calls)} | время: {dt:.1f}s | "
-              f"токены: in={t['in']} out={t['out']} cache_w={t['cw']} cache_r={t['cr']} "
-              f"| стоимость: ${meter.cost():.4f}\n")
+        print(f"  LLM calls: {len(meter.calls)} | time: {dt:.1f}s | "
+              f"tokens: in={t['in']} out={t['out']} cache_w={t['cw']} cache_r={t['cr']} "
+              f"| cost: ${meter.cost():.4f}\n")
 
-    print("═══ ИТОГ ═══")
-    print(f"  суммарно потрачено: ${sum(r['meter'].cost() for r in results.values()):.3f}")
+    print("═══ SUMMARY ═══")
+    print(f"  total spent: ${sum(r['meter'].cost() for r in results.values()):.3f}")
 
     out = Path("/tmp/raidho_bench_reports.md")
     out.write_text("\n\n---\n\n".join(f"# {n}\n\n{r['report']}"
                                       for n, r in results.items()), encoding="utf-8")
-    print(f"  отчёты (для оценки качества): {out}")
+    print(f"  reports (for quality evaluation): {out}")
 
 
 if __name__ == "__main__":

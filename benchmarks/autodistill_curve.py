@@ -151,7 +151,7 @@ async def main():
         heavy = await run_profile("heavy (package audit)", HEAVY_TASK, _seed_heavy, key,
                                   base, with_ctx=True)
 
-    print("\n\n═══ ИТОГ — рычаги против петли ═══")
+    print("\n\n═══ SUMMARY — levers against the loop ═══")
     print(f"  {'profile':<22} | {'base':>8} | {'distill':>8} | {'ctx-first':>9} | {'combined':>8}")
     for r in (light, heavy):
         ctx = f"${r['ctx_per']:.5f}" if r['ctx_per'] is not None else "—"
@@ -160,11 +160,11 @@ async def main():
               f"{ctx:>9} | {comb:>8}")
     if heavy['ctx_per']:
         bp = heavy['base_per']
-        print(f"\n  heavy ×к baseline: distill ×{bp/max(heavy['steady'],1e-9):.1f} (вариативно) | "
-              f"context-first ×{bp/max(heavy['ctx_per'],1e-9):.1f} (стабильно) | "
+        print(f"\n  heavy ×vs baseline: distill ×{bp/max(heavy['steady'],1e-9):.1f} (variable) | "
+              f"context-first ×{bp/max(heavy['ctx_per'],1e-9):.1f} (stable) | "
               f"combined ×{bp/max(heavy['comb_steady'],1e-9):.1f}")
-    print("  Итерационный оверхед → distill; данные в петле → context-first; "
-          "combined — складываются ли (см. число).")
+    print("  Iteration overhead → distill; data carried through the loop → "
+          "context-first; combined — see whether they compound (the number).")
 
 
 if __name__ == "__main__":

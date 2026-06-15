@@ -1,63 +1,56 @@
-# Доказательная база: Raidho-процедура vs чистый Opus 4.8 (2026-06-11)
+# Evidence: Raidho procedure vs pure Opus 4.8 (2026-06-11)
 
-Реальный замер на живом API (`claude-opus-4-8`, adaptive thinking), одна и та же
-задача обоими путями: аудит пакета `agent/` (метрики по файлам, TODO/FIXME,
-функции без docstring, отчёт с топ-3 рекомендациями).
+Real-API measurement (`claude-opus-4-8`, adaptive thinking), the same task solved
+both ways: audit the `agent/` package (per-file metrics, TODO/FIXME, functions
+without docstrings, report with top-3 recommendations).
 
-Скрипт: `benchmarks/real_task_opus.py` (в репо, воспроизводим; защита бюджета $3).
-Цены сверены с актуальной документацией Anthropic 2026-06-11:
-вход $5/M, выход $25/M.
+Script: `benchmarks/real_task_opus.py` (in repo, reproducible; $3 budget guard).
+Pricing verified against Anthropic docs 2026-06-11: $5/M in, $25/M out.
 
-## Результат (включая гибрид C, добавлен тем же днём)
+## Result (incl. hybrid C, added the same day)
 
-| | A: процедура + 1 вызов | **C: гибрид (метрики + исходники, 1 вызов)** | B: чистый tool-loop |
+| | A: procedure + 1 call | **C: hybrid (metrics + sources, 1 call)** | B: pure tool-loop |
 |---|---|---|---|
-| LLM-вызовов | 1 | **1** | 8 |
-| Токены (in+out) | 2 744 | **14 484** | 45 288 |
-| Стоимость | $0.0501 | **$0.1156** | $0.3010 |
-| Время | 22.7 с | **32.6 с** | 55.9 с |
-| Качество отчёта | метрики ок, рекомендации общие | **≥ B** (см. ниже) | глубокий |
+| LLM calls | 1 | **1** | 8 |
+| Tokens (in+out) | 2,744 | **14,484** | 45,288 |
+| Cost | $0.0501 | **$0.1156** | $0.3010 |
+| Time | 22.7 s | **32.6 s** | 55.9 s |
+| Report quality | metrics ok, generic advice | **≥ B** (see below) | deep |
 
-**Гибрид закрыл разрыв качества за ×2.6 меньшую цену и ×3.1 меньшие токены,
-чем чистый loop.** Его отчёт (`report_path_c.md`) нашёл всё, что нашёл B
-(нет проверки HTTP-статуса в `_post`; риски `bash`-инструмента — конкретнее,
-чем у B: отсутствие таймаута), ПЛЮС находки, которые B пропустил:
-`except (ProcedureError, Exception): pass` в `loop.py`, молчаливое глотание
-ошибок в `memory.recall()`, мёртвый код `_preview`.
+**The hybrid closed the quality gap at ×2.6 less cost and ×3.1 fewer tokens than
+the pure loop.** Its report found everything B found (no HTTP-status check in
+`_post`; `bash`-tool risks — more concrete than B: missing timeout), PLUS issues
+B missed: `except (ProcedureError, Exception): pass` in `loop.py`, silent error
+swallowing in `memory.recall()`, dead code `_preview`.
 
-**Почему так:** расточительность B — не в чтении кода, а в ПЕТЛЕ: контекст
-переоплачивается на каждой из 8 итераций (41k входных). Гибрид отдаёт модели
-те же улики одним вызовом: метрики собирает детерминированная процедура
-(модели сказано им доверять и не пересчитывать), исходники прикладываются
-целиком. Для больших пакетов исходники заменяются выдержками (сигнатуры +
-помеченные зоны), которые собирает та же процедура.
+**Why:** B's waste is not reading the code, it's the LOOP — context re-paid on
+each of 8 iterations (41k input). The hybrid hands the model the same evidence in
+one call: metrics from a deterministic procedure (told to trust them, not
+recompute), sources attached whole. For larger packages the sources are replaced
+by excerpts (signatures + flagged regions) collected by the same procedure.
 
-Механику (обход файлов, AST, grep) у Raidho выполнила детерминированная
-процедура (`vsa/procedure_runner.Interpreter`) за $0; модель писала только
-отчёт по готовому JSON. Чистый Opus прогнал содержимое всех файлов через
-контекст, на каждой итерации заново.
+The mechanics (walking files, AST, grep) were done by a deterministic procedure
+(`vsa/procedure_runner.Interpreter`) for $0; the model only wrote the report from
+ready JSON. Pure Opus pushed all file contents through context, every iteration.
 
-## Перекрёстное подтверждение расхода (не фантазия)
+## Cross-check of the spend (not made up)
 
-Три независимых источника сходятся:
+Three independent sources agree:
 
-1. **usage-поля API** (суммированы скриптом): $0.0501 + $0.3010 = **$0.351**
-2. **Claude Console, Credit balance**: было $5.00 → стало **$4.65 USD** (дельта $0.35)
-3. **Claude Console, Spend limits**: «**$0.35 spent**»
+1. **API usage fields** (summed by the script): $0.0501 + $0.3010 = **$0.351**
+2. **Claude Console, Credit balance**: $5.00 → **$4.65 USD** (delta $0.35)
+3. **Claude Console, Spend limits**: "**$0.35 spent**"
 
-## Честная оговорка по качеству
+## Honest caveat on quality
 
-Цифры в обоих отчётах совпали (`reports_both_paths.md`). Но отчёт B глубже:
-прочитав сам код, он нашёл то, чего нет в метриках (отсутствие
-`raise_for_status()` в `OpenAICompatProvider._post`; риски `bash`-инструмента).
-Точный вывод: **процедурный путь даёт ×6 по деньгам / ×16.5 по токенам на
-механике, ценой того, что качество отчёта ограничено собранными фактами.**
-Гипотеза «гибрид закроет разрыв за копейки» **проверена тем же днём и
-подтверждена** — см. таблицу выше (путь C: качество ≥ B при ×2.6 меньшей цене).
+The numbers in both reports matched. But B's report went deeper: reading the code
+itself, it found things not in the metrics (missing `raise_for_status()` in
+`OpenAICompatProvider._post`; `bash`-tool risks). Precise takeaway: **the
+procedure path is ×6 cheaper in money / ×16.5 in tokens on the mechanics, at the
+cost of the report being limited to the collected facts.** The hypothesis "the
+hybrid will close the gap for pennies" was **tested the same day and confirmed** —
+see the table above (path C: quality ≥ B at ×2.6 less cost).
 
-## Файлы
-
-- `bench_output.txt` — вывод прогона A+B (вызовы, токены, стоимость)
-- `bench_output_path_c.txt` — вывод прогона гибрида C
-- `reports_both_paths.md` — отчёты A и B целиком
-- `report_path_c.md` — отчёт гибрида C
+The reproducible outputs and full generated reports are regenerated by
+`benchmarks/real_task_opus.py` (they were Russian-language artifacts and were
+removed from the repo; re-run the script to reproduce).
