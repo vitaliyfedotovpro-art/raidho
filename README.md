@@ -47,6 +47,18 @@ provider-agnostic, with your own API key.
 - **Bring your own key.** Claude (default), DeepSeek, OpenAI, or any
   OpenAI-compatible endpoint.
 
+## Benchmarks & tests at a glance
+
+Same audit task, same model — the hybrid matched the pure tool-loop's report
+quality at **×2.6 less cost** and **×3.1 fewer tokens** (the distilled procedure:
+×6 cheaper / ×16.5 fewer tokens on the mechanics).
+
+![Cost & tokens vs pure loop](docs/visuals/01_cost_tokens.svg)
+
+More charts (auto-distillation curve, architecture, the 83-test suite map) and
+the reproducible numbers behind them: **[docs/VISUALS.md](docs/VISUALS.md)**.
+Regenerate with `python scripts/generate_visuals.py`.
+
 ## Install
 
 **Guided (recommended)** — one interactive script that explains every step,
